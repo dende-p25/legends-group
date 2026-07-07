@@ -234,6 +234,11 @@
     white-space:pre-wrap;
     padding-top:14px;
   }
+  .event-detail-inner a{
+    color:var(--accent);
+    word-break:break-all;
+    text-decoration:underline;
+  }
 
   .list-empty{
     text-align:center;
@@ -268,7 +273,7 @@
   <div id="eventList"></div>
 </main>
 
-<footer>© LunaRa Lab</footer>
+<footer>© Legends team</footer>
 
 <script>
 /* ============================================================
@@ -587,7 +592,7 @@ function render(){
         </div>
       </div>
       <div class="event-detail" id="detail-${i}">
-        <div class="event-detail-inner">${escapeHtml(ev.detail)}</div>
+        <div class="event-detail-inner">${linkify(escapeHtml(ev.detail))}</div>
       </div>
     </div>
   `).join("");
@@ -605,6 +610,15 @@ function escapeHtml(str){
   const div = document.createElement("div");
   div.textContent = str;
   return div.innerHTML;
+}
+
+// テキスト中のURLを自動的にリンクに変換する（文章とURLが混在していてもOK）
+function linkify(escapedText){
+  const urlRegex = /((https?:\/\/|www\.)[^\s<]+)/g;
+  return escapedText.replace(urlRegex, (match) => {
+    const href = match.startsWith("http") ? match : `https://${match}`;
+    return `<a href="${href}" target="_blank" rel="noopener">${match}</a>`;
+  });
 }
 
 document.getElementById("searchBox").addEventListener("input", () => {
