@@ -268,7 +268,7 @@
   <div id="eventList"></div>
 </main>
 
-<footer>© Legends Team</footer>
+<footer>© LunaRa Lab</footer>
 
 <script>
 /* ============================================================
@@ -397,8 +397,7 @@ function loadEvents(){
             .map(c => c.trim())
             .filter(Boolean)
         }));
-        // 開催日が新しい順に並べたい場合はコメントアウトを外す
-        // parsed.sort((a, b) => new Date(a.start) - new Date(b.start));
+        parsed.sort((a, b) => new Date(a.start) - new Date(b.start));
       eventsCache[currentTab] = parsed;
       EVENTS = parsed;
       statusEl.style.display = "none";
