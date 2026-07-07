@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>予定一覧</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+  :root{
+    --bg: #f6f3ee;
+    --card: #ffffff;
+    --ink: #292522;
+    --ink-soft: #6f6a63;
+    --line: #e7e2da;
+    --accent: #2f6b63;      /* 深緑（カレンダー・リンク系） */
+    --accent-soft: #e4efec;
+    --gold: #b98a3d;        /* 日付・強調 */
+    --danger: #c1552e;
+    --radius: 14px;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+  body{
+    font-family:'Noto Sans JP', 'Hiragino Sans', sans-serif;
+    background:var(--bg);
+    color:var(--ink);
+    line-height:1.7;
+  }
+  header{
+    text-align:center;
+    padding:44px 20px 30px;
+  }
+  header h1{
+    font-family:'Shippori Mincho', serif;
+    font-size:1.7rem;
+    font-weight:700;
+    letter-spacing:.06em;
+  }
+  header p{
+    color:var(--ink-soft);
+    font-size:.85rem;
+    margin-top:6px;
+    letter-spacing:.04em;
+  }
+  main{
+    max-width:680px;
+    margin:0 auto;
+    padding:0 16px 80px;
+  }
+
+  /* ── 検索バー ── */
+  .toolbar{
+    display:flex;
+    gap:8px;
+    margin-bottom:24px;
+  }
+  .toolbar input{
+    flex:1;
+    padding:11px 14px;
+    border:1.5px solid var(--line);
+    border-radius:10px;
+    font-size:.9rem;
+    font-family:inherit;
+    background:#fff;
+  }
+  .toolbar input:focus{outline:none;border-color:var(--accent);}
+
+  /* ── カテゴリーフィルター ── */
+  .category-filter{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    margin-bottom:20px;
+  }
+  .category-chip{
+    padding:7px 15px;
+    border-radius:20px;
+    border:1.5px solid var(--line);
+    background:#fff;
+    color:var(--ink-soft);
+    font-size:.78rem;
+    font-weight:700;
+    font-family:inherit;
+    cursor:pointer;
+    white-space:nowrap;
+  }
+  .category-chip.active{
+    background:var(--ink);
+    border-color:var(--ink);
+    color:#fff;
+  }
+
+  /* ── カード内のタグ表示 ── */
+  .event-tags{
+    display:flex;
+    flex-wrap:wrap;
+    gap:5px;
+    margin-top:6px;
+  }
+  .event-tag{
+    font-size:.7rem;
+    font-weight:700;
+    padding:2px 10px;
+    border-radius:20px;
+    background:var(--accent-soft);
+    color:var(--accent);
+  }
+
+  /* ── イベントカード ── */
+  .event-card{
+    background:var(--card);
+    border-radius:var(--radius);
+    border:1px solid var(--line);
+    margin-bottom:16px;
+    overflow:hidden;
+  }
+  .event-main{
+    display:flex;
+    gap:16px;
+    padding:18px;
+  }
+  .event-thumb{
+    width:92px;
+    height:92px;
+    border-radius:10px;
+    object-fit:cover;
+    flex-shrink:0;
+    background:var(--accent-soft);
+  }
+  .event-info{flex:1; min-width:0;}
+  .event-date{
+    font-size:.82rem;
+    color:var(--gold);
+    font-weight:700;
+    letter-spacing:.02em;
+    margin-bottom:4px;
+  }
+  .event-title{
+    font-size:1.02rem;
+    font-weight:700;
+    line-height:1.45;
+  }
+  .event-place{
+    font-size:.78rem;
+    color:var(--ink-soft);
+    margin-top:4px;
+  }
+  .event-actions{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    margin-top:14px;
+  }
+  .btn{
+    display:inline-flex;
+    align-items:center;
+    gap:5px;
+    height:34px;
+    padding:0 15px;
+    border-radius:20px;
+    font-size:.78rem;
+    font-weight:700;
+    font-family:inherit;
+    text-decoration:none;
+    border:none;
+    cursor:pointer;
+    white-space:nowrap;
+  }
+  .btn-toggle{ background:#f1efe9; color:var(--ink); }
+  .btn-toggle:hover{ background:#e8e4db; }
+  .btn-gcal{ background:var(--accent); color:#fff !important; }
+  .btn-gcal:hover{ background:#255650; }
+  .btn-sheet{ background:var(--ink); color:#fff !important; }
+  .btn-sheet:hover{ background:#000; }
+
+  .arrow{ display:inline-block; transition:transform .2s; }
+  .arrow.open{ transform:rotate(180deg); }
+
+  /* ── 詳細パネル ── */
+  .event-detail{
+    display:none;
+    padding:0 18px 20px;
+    border-top:1px solid var(--line);
+  }
+  .event-detail.open{ display:block; }
+  .event-detail-inner{
+    font-size:.88rem;
+    color:#454138;
+    white-space:pre-wrap;
+    padding-top:14px;
+  }
+
+  .list-empty{
+    text-align:center;
+    color:#b3aca2;
+    padding:70px 0;
+    font-size:.92rem;
+  }
+
+  footer{
+    text-align:center;
+    padding:24px;
+    color:#c3bcb0;
+    font-size:.75rem;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>予定一覧</h1>
+  <p>最新のイベント・開催情報はこちら</p>
+</header>
+
+<main>
+  <div class="toolbar">
+    <input type="text" id="searchBox" placeholder="タイトルで検索">
+  </div>
+  <div class="category-filter" id="categoryFilter"></div>
+  <div id="statusMsg" class="list-empty" style="display:none;"></div>
+  <div id="eventList"></div>
+</main>
+
+<footer>© LunaRa Lab</footer>
+
+<script>
+/* ============================================================
+   ここにスプレッドシートの「公開用CSV URL」を貼ってください。
+
+   発行手順：
+   1. Googleスプレッドシートを開く
+   2. ファイル → 共有 → ウェブに公開
+   3. 公開する範囲で対象シートを選び、形式を「カンマ区切りの値(.csv)」にする
+   4. 「公開」をクリックして発行されたURLをここに貼り付け
+
+   スプレッドシートの列（1行目はヘッダー、この見出し名で作成）：
+   image | title | place | start | end | detail | sheetUrl | category
+
+   - image    : サムネイル画像のURL（空欄でも可。空欄なら📅アイコンが表示されます）
+   - title    : イベントタイトル
+   - place    : 開催地／ZOOMなど（空欄可）
+   - start    : 開始日時  例）2026-08-05T20:00　（終日イベントは 2026-08-05 でもOK）
+   - end      : 終了日時（空欄ならstartと同日として扱われます）
+   - detail   : 詳細本文（セル内で改行してもそのまま反映されます）
+   - sheetUrl : 参加確認スプレッドシートなどのURL（空欄ならボタン非表示）
+   - category : カテゴリー名（例：カテゴリー1）。複数つけたい場合はカンマ区切りで
+                「カテゴリー1,カテゴリー2」のように入力してください
+   ============================================================ */
+const SHEET_CSV_URL = "ここに公開用CSVのURLを貼り付け";
+
+let EVENTS = [];
+let selectedCategory = "";
+
+/* ============================================================
+   ここから下はロジック部分（通常は編集不要）
+   ============================================================ */
+
+function loadEvents(){
+  const statusEl = document.getElementById("statusMsg");
+  statusEl.style.display = "block";
+  statusEl.textContent = "読み込み中…";
+
+  Papa.parse(SHEET_CSV_URL, {
+    download: true,
+    header: true,
+    skipEmptyLines: true,
+    complete: (results) => {
+      EVENTS = results.data
+        .filter(row => row.title && row.start)
+        .map(row => ({
+          image: (row.image || "").trim(),
+          title: (row.title || "").trim(),
+          place: (row.place || "").trim(),
+          start: (row.start || "").trim(),
+          end: (row.end || "").trim(),
+          detail: row.detail || "",
+          sheetUrl: (row.sheetUrl || "").trim() || null,
+          categories: (row.category || "")
+            .split(",")
+            .map(c => c.trim())
+            .filter(Boolean)
+        }))
+        // 開催日が新しい順に並べたい場合はコメントアウトを外す
+        // .sort((a, b) => new Date(a.start) - new Date(b.start));
+      statusEl.style.display = "none";
+      renderCategoryFilter();
+      render(document.getElementById("searchBox").value);
+    },
+    error: () => {
+      statusEl.textContent = "予定の読み込みに失敗しました。スプシの公開URLが正しいかご確認ください。";
+    }
+  });
+}
+
+// EVENTSに登場するカテゴリーからフィルターボタンを自動生成
+function renderCategoryFilter(){
+  const wrap = document.getElementById("categoryFilter");
+  const allCategories = [...new Set(EVENTS.flatMap(ev => ev.categories))];
+
+  if(allCategories.length === 0){
+    wrap.innerHTML = "";
+    return;
+  }
+
+  const chips = ["", ...allCategories];
+  wrap.innerHTML = chips.map(cat => `
+    <button class="category-chip ${selectedCategory === cat ? 'active' : ''}" data-cat="${escapeHtml(cat)}">
+      ${cat === "" ? "すべて" : escapeHtml(cat)}
+    </button>
+  `).join("");
+
+  wrap.querySelectorAll(".category-chip").forEach(btn => {
+    btn.addEventListener("click", () => {
+      selectedCategory = btn.dataset.cat;
+      renderCategoryFilter();
+      render(document.getElementById("searchBox").value);
+    });
+  });
+}
+
+// 日付表示用フォーマット（例: 2026年8月5日（水） 20:00）
+function formatDate(iso){
+  const hasTime = iso.length > 10;
+  const d = new Date(iso);
+  const dow = ["日","月","火","水","木","金","土"][d.getDay()];
+  const base = `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日（${dow}）`;
+  if(!hasTime) return base;
+  const hh = String(d.getHours()).padStart(2,"0");
+  const mm = String(d.getMinutes()).padStart(2,"0");
+  return `${base} ${hh}:${mm}`;
+}
+
+function formatDateRange(start, end){
+  if(!end || end === start) return formatDate(start);
+  return `${formatDate(start)} 〜 ${formatDate(end)}`;
+}
+
+// Googleカレンダー追加リンクを自動生成（手打ち不要）
+function buildGcalUrl(ev){
+  const toGcalStamp = (iso, isEnd) => {
+    const allDay = iso.length <= 10;
+    let d = new Date(iso);
+    if(allDay && isEnd){
+      // 終日イベントの終了日はGoogleカレンダー仕様上+1日する
+      d = new Date(d.getTime() + 24*60*60*1000);
+    }
+    const pad = n => String(n).padStart(2,"0");
+    if(allDay){
+      return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`;
+    }
+    return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}00`;
+  };
+  const start = toGcalStamp(ev.start, false);
+  const end = toGcalStamp(ev.end || ev.start, true);
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    text: ev.title,
+    dates: `${start}/${end}`,
+    details: ev.detail,
+    ctz: "Asia/Tokyo"
+  });
+  if(ev.place) params.set("location", ev.place);
+  return `https://www.google.com/calendar/render?${params.toString()}`;
+}
+
+let openIndex = null;
+
+function render(filterText = ""){
+  const list = document.getElementById("eventList");
+  const q = filterText.trim().toLowerCase();
+  const filtered = EVENTS
+    .map((ev, i) => ({ ev, i }))
+    .filter(({ev}) => !q || ev.title.toLowerCase().includes(q))
+    .filter(({ev}) => !selectedCategory || ev.categories.includes(selectedCategory));
+
+  if(filtered.length === 0){
+    list.innerHTML = `<div class="list-empty">該当する予定がありません</div>`;
+    return;
+  }
+
+  list.innerHTML = filtered.map(({ev, i}) => `
+    <div class="event-card">
+      <div class="event-main">
+        ${ev.image
+          ? `<img class="event-thumb" src="${ev.image}" alt="">`
+          : `<div class="event-thumb" style="display:flex;align-items:center;justify-content:center;font-size:1.6rem;">📅</div>`
+        }
+        <div class="event-info">
+          <div class="event-date">${formatDateRange(ev.start, ev.end)}</div>
+          <div class="event-title">${ev.title}</div>
+          ${ev.place ? `<div class="event-place">${ev.place}</div>` : ""}
+          ${ev.categories.length ? `
+          <div class="event-tags">
+            ${ev.categories.map(c => `<span class="event-tag">${escapeHtml(c)}</span>`).join("")}
+          </div>` : ""}
+          <div class="event-actions">
+            <button class="btn btn-toggle" onclick="toggleDetail(${i})">
+              詳細を見る <span class="arrow" id="arrow-${i}">▼</span>
+            </button>
+            <a class="btn btn-gcal" href="${buildGcalUrl(ev)}" target="_blank" rel="noopener">
+              📅 Googleカレンダーに追加
+            </a>
+            ${ev.sheetUrl ? `
+            <a class="btn btn-sheet" href="${ev.sheetUrl}" target="_blank" rel="noopener">
+              📊 スプシを確認する
+            </a>` : ""}
+          </div>
+        </div>
+      </div>
+      <div class="event-detail" id="detail-${i}">
+        <div class="event-detail-inner">${escapeHtml(ev.detail)}</div>
+      </div>
+    </div>
+  `).join("");
+}
+
+function toggleDetail(i){
+  const detail = document.getElementById(`detail-${i}`);
+  const arrow = document.getElementById(`arrow-${i}`);
+  const isOpen = detail.classList.contains("open");
+  detail.classList.toggle("open", !isOpen);
+  arrow.classList.toggle("open", !isOpen);
+}
+
+function escapeHtml(str){
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+document.getElementById("searchBox").addEventListener("input", (e) => {
+  render(e.target.value);
+});
+
+loadEvents();
+</script>
+</body>
+</html>
