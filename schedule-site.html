@@ -49,6 +49,30 @@
     padding:0 16px 80px;
   }
 
+  /* ── 予定タブ切り替え ── */
+  .tab-switch{
+    display:flex;
+    gap:6px;
+    margin-bottom:20px;
+  }
+  .tab-switch button{
+    flex:1;
+    padding:11px 10px;
+    border-radius:10px;
+    border:1.5px solid var(--line);
+    background:#fff;
+    color:var(--ink-soft);
+    font-size:.85rem;
+    font-weight:700;
+    font-family:inherit;
+    cursor:pointer;
+  }
+  .tab-switch button.active{
+    background:var(--ink);
+    border-color:var(--ink);
+    color:#fff;
+  }
+
   /* ── 検索バー ── */
   .toolbar{
     display:flex;
@@ -65,6 +89,26 @@
     background:#fff;
   }
   .toolbar input:focus{outline:none;border-color:var(--accent);}
+
+  /* ── 追加フィルター（地域・県・月） ── */
+  .extra-filters{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    margin-bottom:20px;
+  }
+  .extra-filters select{
+    flex:1;
+    min-width:110px;
+    padding:10px 10px;
+    border:1.5px solid var(--line);
+    border-radius:10px;
+    font-size:.82rem;
+    font-family:inherit;
+    background:#fff;
+    color:var(--ink);
+  }
+  .extra-filters select:focus{outline:none;border-color:var(--accent);}
 
   /* ── カテゴリーフィルター ── */
   .category-filter{
@@ -214,9 +258,11 @@
 </header>
 
 <main>
+  <div class="tab-switch" id="tabSwitch"></div>
   <div class="toolbar">
     <input type="text" id="searchBox" placeholder="タイトルで検索">
   </div>
+  <div class="extra-filters" id="extraFilters"></div>
   <div class="category-filter" id="categoryFilter"></div>
   <div id="statusMsg" class="list-empty" style="display:none;"></div>
   <div id="eventList"></div>
@@ -226,47 +272,115 @@
 
 <script>
 /* ============================================================
-   ここにスプレッドシートの「公開用CSV URL」を貼ってください。
+   タブ（予定の種類）ごとの設定はここにまとめます。
 
-   発行手順：
-   1. Googleスプレッドシートを開く
-   2. ファイル → 共有 → ウェブに公開
-   3. 公開する範囲で対象シートを選び、形式を「カンマ区切りの値(.csv)」にする
-   4. 「公開」をクリックして発行されたURLをここに貼り付け
+   ▼準備手順
+   1. Googleスプレッドシートを開き、共有設定を
+      「リンクを知っている全員」→「閲覧者」に変更する
+      （ファイル→共有→アクセスできるユーザーの設定）
+   2. スプレッドシート内に、予定の種類ごとにシート（タブ）を作る
+      例：「イベント」タブ、「チームMTG」タブ
+   3. 各シートの1行目に同じ見出しを入れる：
+      image | title | place | start | end | detail | sheetUrl | category | region | pref
+      ※region（地域）・pref（県）は「イベント」タブのように
+        地域・県での絞り込みをしたいタブだけ用意すればOKです
+   4. スプレッドシートのURLから「SPREADSHEET_ID」をコピーする
+      例）https://docs.google.com/spreadsheets/d/【ここがID】/edit
+   5. 下のSPREADSHEET_IDに貼り付け、TABSに各シート名と表示名を追加する
 
-   スプレッドシートの列（1行目はヘッダー、この見出し名で作成）：
-   image | title | place | start | end | detail | sheetUrl | category
+   ※シート名は日本語でもOKです（例："イベント"、"チームMTG"）。
+     スプレッドシート上のタブ名と完全に一致させてください。
 
-   - image    : サムネイル画像のURL（空欄でも可。空欄なら📅アイコンが表示されます）
-   - title    : イベントタイトル
-   - place    : 開催地／ZOOMなど（空欄可）
-   - start    : 開始日時  例）2026-08-05T20:00　（終日イベントは 2026-08-05 でもOK）
-   - end      : 終了日時（空欄ならstartと同日として扱われます）
-   - detail   : 詳細本文（セル内で改行してもそのまま反映されます）
-   - sheetUrl : 参加確認スプレッドシートなどのURL（空欄ならボタン非表示）
-   - category : カテゴリー名（例：カテゴリー1）。複数つけたい場合はカンマ区切りで
-                「カテゴリー1,カテゴリー2」のように入力してください
+   ▼ filters について
+   タブごとに「地域orZOOM／県orZOOM／月」の絞り込みを出すかどうかを
+   filters配列で指定します。不要なタブは空配列 [] にしてください。
    ============================================================ */
-const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQBW5q-688e3WKECMgBEN4IvMBp_5IjSz_I5yKgwY8-w7IGcXqMPBt-sv5A-h9oscyKy0O7XTIGE_0K/pub?output=csv";
+const SPREADSHEET_ID = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQBW5q-688e3WKECMgBEN4IvMBp_5IjSz_I5yKgwY8-w7IGcXqMPBt-sv5A-h9oscyKy0O7XTIGE_0K/pub?output=csv";
 
+const TABS = [
+  { key: "event", label: "イベント",       sheetName: "イベント",       filters: ["region", "pref", "month"] },
+  { key: "training", label: "視聴会・トレーニング", sheetName: "視聴会・トレーニング", filters: [] }
+  // タブを増やしたい場合はここに追記してください
+  // { key: "xxx", label: "表示名", sheetName: "スプシ側のシート名", filters: [] }
+];
+
+// 「地域orZOOM」の選択肢
+const REGION_OPTIONS = [
+  "ZOOM", "関東地域", "北海道地域", "東北地域", "北陸地域", "甲信越地域",
+  "東海地域", "関西地域", "四国地域", "中国地域", "九州地域", "沖縄地域", "海外"
+];
+
+// 「県orZOOM」の選択肢
+const PREF_OPTIONS = [
+  "ZOOM", "北海道", "青森県", "岩手県", "宮城県", "秋田県", "山形県", "福島県",
+  "東京23区", "西東京（23区外）", "神奈川県", "千葉県", "埼玉県", "茨城県", "栃木県", "群馬県",
+  "山梨県", "長野県", "新潟県", "富山県", "石川県", "福井県", "岐阜県", "静岡県", "愛知県", "三重県",
+  "滋賀県", "京都府", "大阪府", "兵庫県", "奈良県", "和歌山県", "鳥取県", "島根県", "岡山県", "広島県",
+  "山口県", "徳島県", "香川県", "愛媛県", "高知県", "福岡県", "佐賀県", "長崎県", "熊本県", "大分県",
+  "宮崎県", "鹿児島県", "沖縄県", "海外"
+];
+
+let currentTab = TABS[0].key;
 let EVENTS = [];
-let selectedCategory = "LINK,ありさ組,ひろこ組,フェリンジャーズ,HidekaG";
+let selectedCategory = "";
+let selectedRegion = "";
+let selectedPref = "";
+let selectedMonth = "all";
+const eventsCache = {}; // シートごとの読み込み結果をキャッシュ
+
+function buildSheetCsvUrl(sheetName){
+  const params = new URLSearchParams({ tqx: "out:csv", sheet: sheetName });
+  return `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?${params.toString()}`;
+}
 
 /* ============================================================
    ここから下はロジック部分（通常は編集不要）
    ============================================================ */
 
+function renderTabSwitch(){
+  const wrap = document.getElementById("tabSwitch");
+  wrap.innerHTML = TABS.map(tab => `
+    <button class="${currentTab === tab.key ? 'active' : ''}" data-key="${tab.key}">${escapeHtml(tab.label)}</button>
+  `).join("");
+
+  wrap.querySelectorAll("button").forEach(btn => {
+    btn.addEventListener("click", () => {
+      if(btn.dataset.key === currentTab) return;
+      currentTab = btn.dataset.key;
+      selectedCategory = "";
+      selectedRegion = "";
+      selectedPref = "";
+      selectedMonth = "all";
+      document.getElementById("searchBox").value = "";
+      renderTabSwitch();
+      loadEvents();
+    });
+  });
+}
+
 function loadEvents(){
   const statusEl = document.getElementById("statusMsg");
+
+  if(eventsCache[currentTab]){
+    EVENTS = eventsCache[currentTab];
+    renderExtraFilters();
+    renderCategoryFilter();
+    render();
+    return;
+  }
+
   statusEl.style.display = "block";
   statusEl.textContent = "読み込み中…";
+  document.getElementById("eventList").innerHTML = "";
 
-  Papa.parse(SHEET_CSV_URL, {
+  const tab = TABS.find(t => t.key === currentTab);
+
+  Papa.parse(buildSheetCsvUrl(tab.sheetName), {
     download: true,
     header: true,
     skipEmptyLines: true,
     complete: (results) => {
-      EVENTS = results.data
+      const parsed = results.data
         .filter(row => row.title && row.start)
         .map(row => ({
           image: (row.image || "").trim(),
@@ -276,21 +390,83 @@ function loadEvents(){
           end: (row.end || "").trim(),
           detail: row.detail || "",
           sheetUrl: (row.sheetUrl || "").trim() || null,
+          region: (row.region || "").trim(),
+          pref: (row.pref || "").trim(),
           categories: (row.category || "")
             .split(",")
             .map(c => c.trim())
             .filter(Boolean)
-        }))
+        }));
         // 開催日が新しい順に並べたい場合はコメントアウトを外す
-        // .sort((a, b) => new Date(a.start) - new Date(b.start));
+        // parsed.sort((a, b) => new Date(a.start) - new Date(b.start));
+      eventsCache[currentTab] = parsed;
+      EVENTS = parsed;
       statusEl.style.display = "none";
+      renderExtraFilters();
       renderCategoryFilter();
-      render(document.getElementById("searchBox").value);
+      render();
     },
     error: () => {
-      statusEl.textContent = "予定の読み込みに失敗しました。スプシの公開URLが正しいかご確認ください。";
+      statusEl.style.display = "block";
+      statusEl.textContent = "予定の読み込みに失敗しました。シート名・共有設定をご確認ください。";
     }
   });
+}
+
+// 現在のタブ設定に応じて「地域orZOOM／県orZOOM／月」の絞り込みを描画
+function renderExtraFilters(){
+  const wrap = document.getElementById("extraFilters");
+  const tab = TABS.find(t => t.key === currentTab);
+  const filters = tab.filters || [];
+
+  if(filters.length === 0){
+    wrap.innerHTML = "";
+    return;
+  }
+
+  let html = "";
+
+  if(filters.includes("region")){
+    html += `<select id="filterRegion">
+      <option value="">地域orZOOM - すべて -</option>
+      ${REGION_OPTIONS.map(r => `<option value="${escapeHtml(r)}" ${selectedRegion === r ? "selected" : ""}>${escapeHtml(r)}</option>`).join("")}
+    </select>`;
+  }
+  if(filters.includes("pref")){
+    html += `<select id="filterPref">
+      <option value="">県orZOOM - すべて -</option>
+      ${PREF_OPTIONS.map(p => `<option value="${escapeHtml(p)}" ${selectedPref === p ? "selected" : ""}>${escapeHtml(p)}</option>`).join("")}
+    </select>`;
+  }
+  if(filters.includes("month")){
+    html += `<select id="filterMonth">
+      <option value="all" ${selectedMonth === "all" ? "selected" : ""}>月 - すべて -</option>
+      <option value="this" ${selectedMonth === "this" ? "selected" : ""}>今月</option>
+      <option value="next" ${selectedMonth === "next" ? "selected" : ""}>来月</option>
+      <option value="nextnext" ${selectedMonth === "nextnext" ? "selected" : ""}>再来月</option>
+    </select>`;
+  }
+
+  wrap.innerHTML = html;
+
+  const regionEl = document.getElementById("filterRegion");
+  const prefEl = document.getElementById("filterPref");
+  const monthEl = document.getElementById("filterMonth");
+
+  if(regionEl) regionEl.addEventListener("change", () => { selectedRegion = regionEl.value; render(); });
+  if(prefEl) prefEl.addEventListener("change", () => { selectedPref = prefEl.value; render(); });
+  if(monthEl) monthEl.addEventListener("change", () => { selectedMonth = monthEl.value; render(); });
+}
+
+// 「今月／来月／再来月」の判定
+function matchesMonth(startIso, monthFilter){
+  if(monthFilter === "all") return true;
+  const now = new Date();
+  const target = new Date(now.getFullYear(), now.getMonth(), 1);
+  if(monthFilter === "next") target.setMonth(target.getMonth() + 1);
+  if(monthFilter === "nextnext") target.setMonth(target.getMonth() + 2);
+  const d = new Date(startIso);
+  return d.getFullYear() === target.getFullYear() && d.getMonth() === target.getMonth();
 }
 
 // EVENTSに登場するカテゴリーからフィルターボタンを自動生成
@@ -314,7 +490,7 @@ function renderCategoryFilter(){
     btn.addEventListener("click", () => {
       selectedCategory = btn.dataset.cat;
       renderCategoryFilter();
-      render(document.getElementById("searchBox").value);
+      render();
     });
   });
 }
@@ -366,13 +542,16 @@ function buildGcalUrl(ev){
 
 let openIndex = null;
 
-function render(filterText = ""){
+function render(){
   const list = document.getElementById("eventList");
-  const q = filterText.trim().toLowerCase();
+  const q = document.getElementById("searchBox").value.trim().toLowerCase();
   const filtered = EVENTS
     .map((ev, i) => ({ ev, i }))
     .filter(({ev}) => !q || ev.title.toLowerCase().includes(q))
-    .filter(({ev}) => !selectedCategory || ev.categories.includes(selectedCategory));
+    .filter(({ev}) => !selectedCategory || ev.categories.includes(selectedCategory))
+    .filter(({ev}) => !selectedRegion || ev.region === selectedRegion)
+    .filter(({ev}) => !selectedPref || ev.pref === selectedPref)
+    .filter(({ev}) => matchesMonth(ev.start, selectedMonth));
 
   if(filtered.length === 0){
     list.innerHTML = `<div class="list-empty">該当する予定がありません</div>`;
@@ -429,10 +608,11 @@ function escapeHtml(str){
   return div.innerHTML;
 }
 
-document.getElementById("searchBox").addEventListener("input", (e) => {
-  render(e.target.value);
+document.getElementById("searchBox").addEventListener("input", () => {
+  render();
 });
 
+renderTabSwitch();
 loadEvents();
 </script>
 </body>
