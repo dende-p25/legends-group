@@ -725,13 +725,13 @@ function renderJoinRow(ev, i){
 
   if(joined){
     row.innerHTML = `
-      <span class="join-status">✓ 参加登録済み</span>
+      <span class="join-status">✓ 申込みを報告済み</span>
       <button class="btn btn-cancel" onclick="handleCancel(${i})">キャンセルする</button>
     `;
     return;
   }
 
-  row.innerHTML = `<button class="btn btn-join" onclick="showJoinForm(${i})">🙋 申込み済み</button>`;
+  row.innerHTML = `<button class="btn btn-join" onclick="showJoinForm(${i})">🙋 申込んだらタップ</button>`;
 }
 
 function showJoinForm(i){
