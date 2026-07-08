@@ -217,6 +217,47 @@
   .btn-gcal:hover{ background:#255650; }
   .btn-sheet{ background:var(--ink); color:#fff !important; }
   .btn-sheet:hover{ background:#000; }
+  .btn-join{ background:var(--gold); color:#fff; }
+  .btn-join:hover{ background:#9c7530; }
+  .btn-cancel{ background:#fff; color:var(--danger); border:1.5px solid var(--danger); }
+  .btn-cancel:hover{ background:#fbeee8; }
+
+  /* ── 参加登録 ── */
+  .join-row{ margin-top:10px; }
+  .join-status{
+    display:inline-flex;
+    align-items:center;
+    gap:5px;
+    height:34px;
+    padding:0 15px;
+    border-radius:20px;
+    font-size:.78rem;
+    font-weight:700;
+    background:var(--accent-soft);
+    color:var(--accent);
+    margin-right:8px;
+  }
+  .join-form{
+    display:flex;
+    gap:8px;
+    margin-top:10px;
+  }
+  .join-form input{
+    flex:1;
+    min-width:0;
+    padding:9px 12px;
+    border:1.5px solid var(--line);
+    border-radius:10px;
+    font-size:.85rem;
+    font-family:inherit;
+  }
+  .join-form input:focus{outline:none;border-color:var(--accent);}
+  .join-msg{
+    font-size:.76rem;
+    color:var(--danger);
+    margin-top:6px;
+  }
+  .join-msg.ok{ color:var(--accent); }
 
   .arrow{ display:inline-block; transition:transform .2s; }
   .arrow.open{ transform:rotate(180deg); }
@@ -273,7 +314,7 @@
   <div id="eventList"></div>
 </main>
 
-<footer>© Legends team</footer>
+<footer>© Legends Teams</footer>
 
 <script>
 /* ============================================================
@@ -332,6 +373,37 @@ let selectedRegion = "";
 let selectedPref = "";
 let selectedMonth = "all";
 const eventsCache = {}; // シートごとの読み込み結果をキャッシュ
+
+/* ============================================================
+   参加登録機能（Google Apps Script連携）
+
+   ①のスプシに紐づけたGASを「ウェブアプリ」としてデプロイし、
+   発行された .../exec のURLを下に貼ってください。
+   ============================================================ */
+const GAS_ENDPOINT_URL = "https://script.google.com/macros/s/AKfycbxhRc3xZYW1SrJw3HidTBvFRjcaoCwjQY3R22mvouUSbmskynD7lQoPs9VmFA_ByESu/exec";
+
+function getStoredName(){
+  return localStorage.getItem("participantName") || "";
+}
+function setStoredName(name){
+  localStorage.setItem("participantName", name);
+}
+function getJoinedMap(){
+  try{ return JSON.parse(localStorage.getItem("joinedEvents") || "{}"); }
+  catch(e){ return {}; }
+}
+function setJoinedMap(map){
+  localStorage.setItem("joinedEvents", JSON.stringify(map));
+}
+
+async function callGas(action, eventTitle, name){
+  const url = new URL(GAS_ENDPOINT_URL);
+  url.searchParams.set("action", action);
+  url.searchParams.set("event", eventTitle);
+  url.searchParams.set("name", name);
+  const res = await fetch(url.toString());
+  return res.json();
+}
 
 function buildSheetCsvUrl(sheetName){
   const params = new URLSearchParams({ tqx: "out:csv", sheet: sheetName });
@@ -589,6 +661,7 @@ function render(){
               📊 スプシを確認する
             </a>` : ""}
           </div>
+          <div class="join-row" id="join-${i}"></div>
         </div>
       </div>
       <div class="event-detail" id="detail-${i}">
@@ -596,6 +669,8 @@ function render(){
       </div>
     </div>
   `).join("");
+
+  filtered.forEach(({ev, i}) => renderJoinRow(ev, i));
 }
 
 function toggleDetail(i){
@@ -604,6 +679,97 @@ function toggleDetail(i){
   const isOpen = detail.classList.contains("open");
   detail.classList.toggle("open", !isOpen);
   arrow.classList.toggle("open", !isOpen);
+}
+
+// 参加ボタン／登録済み表示を、そのイベントの状態に応じて描画
+function renderJoinRow(ev, i){
+  const row = document.getElementById(`join-${i}`);
+  if(!row) return;
+  const joined = getJoinedMap()[ev.title];
+
+  if(joined){
+    row.innerHTML = `
+      <span class="join-status">✓ 参加登録済み</span>
+      <button class="btn btn-cancel" onclick="handleCancel(${i})">キャンセルする</button>
+    `;
+    return;
+  }
+
+  row.innerHTML = `<button class="btn btn-join" onclick="showJoinForm(${i})">🙋 参加する</button>`;
+}
+
+function showJoinForm(i){
+  const row = document.getElementById(`join-${i}`);
+  row.innerHTML = `
+    <div class="join-form">
+      <input type="text" id="joinName-${i}" placeholder="お名前・ニックネーム" value="${escapeHtml(getStoredName())}">
+      <button class="btn btn-join" onclick="handleJoinSubmit(${i})">送信</button>
+    </div>
+    <div class="join-msg" id="joinMsg-${i}"></div>
+  `;
+}
+
+async function handleJoinSubmit(i){
+  const ev = EVENTS[i];
+  const input = document.getElementById(`joinName-${i}`);
+  const msgEl = document.getElementById(`joinMsg-${i}`);
+  const name = input.value.trim();
+
+  if(!name){
+    msgEl.textContent = "お名前を入力してください";
+    msgEl.classList.remove("ok");
+    return;
+  }
+
+  msgEl.textContent = "送信中…";
+  msgEl.classList.remove("ok");
+
+  try{
+    const result = await callGas("join", ev.title, name);
+
+    if(result.result === "ok"){
+      setStoredName(name);
+      const map = getJoinedMap();
+      map[ev.title] = true;
+      setJoinedMap(map);
+      renderJoinRow(ev, i);
+    } else if(result.result === "duplicate"){
+      setStoredName(name);
+      const map = getJoinedMap();
+      map[ev.title] = true;
+      setJoinedMap(map);
+      renderJoinRow(ev, i);
+    } else {
+      msgEl.textContent = "登録に失敗しました。もう一度お試しください";
+    }
+  } catch(err){
+    msgEl.textContent = "通信エラーが発生しました。時間をおいて再度お試しください";
+  }
+}
+
+async function handleCancel(i){
+  const ev = EVENTS[i];
+  const name = getStoredName();
+
+  if(!name){
+    alert("登録時のお名前が確認できませんでした。お手数ですが管理者へご連絡ください。");
+    return;
+  }
+
+  try{
+    const result = await callGas("cancel", ev.title, name);
+
+    if(result.result === "ok" || result.result === "not_found"){
+      const map = getJoinedMap();
+      delete map[ev.title];
+      setJoinedMap(map);
+      renderJoinRow(ev, i);
+    } else {
+      alert("キャンセル処理に失敗しました。時間をおいて再度お試しください。");
+    }
+  } catch(err){
+    alert("通信エラーが発生しました。時間をおいて再度お試しください。");
+  }
 }
 
 function escapeHtml(str){
