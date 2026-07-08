@@ -688,7 +688,7 @@ function render(){
             </a>` : ""}
             ${!isPastEvent(ev) && ev.sheetUrl ? `
             <a class="btn btn-sheet" href="${ev.sheetUrl}" target="_blank" rel="noopener">
-              📊 スプシを確認する
+              📊 申し込みする
             </a>` : ""}
           </div>
           <div class="join-row" id="join-${i}"></div>
@@ -731,7 +731,7 @@ function renderJoinRow(ev, i){
     return;
   }
 
-  row.innerHTML = `<button class="btn btn-join" onclick="showJoinForm(${i})">🙋 参加する</button>`;
+  row.innerHTML = `<button class="btn btn-join" onclick="showJoinForm(${i})">🙋 申込み済み</button>`;
 }
 
 function showJoinForm(i){
