@@ -159,6 +159,23 @@
     margin-bottom:16px;
     overflow:hidden;
   }
+  .event-card.past{
+    opacity:.55;
+    filter:grayscale(.6);
+  }
+  .past-badge{
+    display:inline-flex;
+    align-items:center;
+    height:22px;
+    padding:0 10px;
+    border-radius:20px;
+    font-size:.68rem;
+    font-weight:700;
+    background:#e3e0d9;
+    color:#6f6a63;
+    margin-left:6px;
+    vertical-align:middle;
+  }
   .event-main{
     display:flex;
     gap:16px;
@@ -589,6 +606,17 @@ function formatDateRange(start, end){
   return `${formatDate(start)} 〜 ${formatDate(end)}`;
 }
 
+// 終了日時が「今」より前かどうかを判定
+function isPastEvent(ev){
+  const refIso = ev.end || ev.start;
+  let refDate = new Date(refIso);
+  if(refIso.length <= 10){
+    // 終了日のみ指定（時刻なし）の場合はその日の終わりまでを開催中とみなす
+    refDate.setHours(23, 59, 59, 999);
+  }
+  return refDate.getTime() < Date.now();
+}
+
 // Googleカレンダー追加リンクを自動生成（手打ち不要）
 function buildGcalUrl(ev){
   const toGcalStamp = (iso, isEnd) => {
@@ -636,14 +664,14 @@ function render(){
   }
 
   list.innerHTML = filtered.map(({ev, i}) => `
-    <div class="event-card">
+    <div class="event-card ${isPastEvent(ev) ? 'past' : ''}">
       <div class="event-main">
         ${ev.image
           ? `<img class="event-thumb" src="${ev.image}" alt="">`
           : `<div class="event-thumb" style="display:flex;align-items:center;justify-content:center;font-size:1.6rem;">📅</div>`
         }
         <div class="event-info">
-          <div class="event-date">${formatDateRange(ev.start, ev.end)}</div>
+          <div class="event-date">${formatDateRange(ev.start, ev.end)}${isPastEvent(ev) ? '<span class="past-badge">終了しました</span>' : ''}</div>
           <div class="event-title">${ev.title}</div>
           ${ev.place ? `<div class="event-place">${ev.place}</div>` : ""}
           ${ev.categories.length ? `
@@ -654,10 +682,11 @@ function render(){
             <button class="btn btn-toggle" onclick="toggleDetail(${i})">
               詳細を見る <span class="arrow" id="arrow-${i}">▼</span>
             </button>
+            ${!isPastEvent(ev) ? `
             <a class="btn btn-gcal" href="${buildGcalUrl(ev)}" target="_blank" rel="noopener">
               📅 Googleカレンダーに追加
-            </a>
-            ${ev.sheetUrl ? `
+            </a>` : ""}
+            ${!isPastEvent(ev) && ev.sheetUrl ? `
             <a class="btn btn-sheet" href="${ev.sheetUrl}" target="_blank" rel="noopener">
               📊 スプシを確認する
             </a>` : ""}
@@ -686,6 +715,12 @@ function toggleDetail(i){
 function renderJoinRow(ev, i){
   const row = document.getElementById(`join-${i}`);
   if(!row) return;
+
+  if(isPastEvent(ev)){
+    row.innerHTML = "";
+    return;
+  }
+
   const joined = getJoinedMap()[ev.title];
 
   if(joined){
