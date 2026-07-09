@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>予定一覧</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+  :root{
+    --bg: #f6f3ee;
+    --card: #ffffff;
+    --ink: #292522;
+    --ink-soft: #6f6a63;
+    --line: #e7e2da;
+    --accent: #2f6b63;      /* 深緑（カレンダー・リンク系） */
+    --accent-soft: #e4efec;
+    --gold: #b98a3d;        /* 日付・強調 */
+    --danger: #c1552e;
+    --radius: 14px;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+  body{
+    font-family:'Noto Sans JP', 'Hiragino Sans', sans-serif;
+    background:var(--bg);
+    color:var(--ink);
+    line-height:1.7;
+  }
+  header{
+    text-align:center;
+    padding:44px 20px 30px;
+  }
+  header h1{
+    font-family:'Shippori Mincho', serif;
+    font-size:1.7rem;
+    font-weight:700;
+    letter-spacing:.06em;
+  }
+  header p{
+    color:var(--ink-soft);
+    font-size:.85rem;
+    margin-top:6px;
+    letter-spacing:.04em;
+  }
+  main{
+    max-width:680px;
+    margin:0 auto;
+    padding:0 16px 80px;
+  }
+
+  /* ── 予定タブ切り替え ── */
+  .tab-switch{
+    display:flex;
+    gap:6px;
+    margin-bottom:20px;
+  }
+  .tab-switch button{
+    flex:1;
+    padding:11px 10px;
+    border-radius:10px;
+    border:1.5px solid var(--line);
+    background:#fff;
+    color:var(--ink-soft);
+    font-size:.85rem;
+    font-weight:700;
+    font-family:inherit;
+    cursor:pointer;
+  }
+  .tab-switch button.active{
+    background:var(--ink);
+    border-color:var(--ink);
+    color:#fff;
+  }
+
+  /* ── 検索バー ── */
+  .toolbar{
+    display:flex;
+    gap:8px;
+    margin-bottom:24px;
+  }
+  .toolbar input{
+    flex:1;
+    padding:11px 14px;
+    border:1.5px solid var(--line);
+    border-radius:10px;
+    font-size:.9rem;
+    font-family:inherit;
+    background:#fff;
+  }
+  .toolbar input:focus{outline:none;border-color:var(--accent);}
+
+  /* ── 追加フィルター（地域・県・月） ── */
+  .extra-filters{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    margin-bottom:20px;
+  }
+  .extra-filters select{
+    flex:1;
+    min-width:110px;
+    padding:10px 10px;
+    border:1.5px solid var(--line);
+    border-radius:10px;
+    font-size:.82rem;
+    font-family:inherit;
+    background:#fff;
+    color:var(--ink);
+  }
+  .extra-filters select:focus{outline:none;border-color:var(--accent);}
+
+  /* ── カテゴリーフィルター ── */
+  .category-filter{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    margin-bottom:20px;
+  }
+  .category-chip{
+    padding:7px 15px;
+    border-radius:20px;
+    border:1.5px solid var(--line);
+    background:#fff;
+    color:var(--ink-soft);
+    font-size:.78rem;
+    font-weight:700;
+    font-family:inherit;
+    cursor:pointer;
+    white-space:nowrap;
+  }
+  .category-chip.active{
+    background:var(--ink);
+    border-color:var(--ink);
+    color:#fff;
+  }
+
+  /* ── カード内のタグ表示 ── */
+  .event-tags{
+    display:flex;
+    flex-wrap:wrap;
+    gap:5px;
+    margin-top:6px;
+  }
+  .event-tag{
+    font-size:.7rem;
+    font-weight:700;
+    padding:2px 10px;
+    border-radius:20px;
+    background:var(--accent-soft);
+    color:var(--accent);
+  }
+
+  /* ── イベントカード ── */
+  .event-card{
+    background:var(--card);
+    border-radius:var(--radius);
+    border:1px solid var(--line);
+    margin-bottom:16px;
+    overflow:hidden;
+  }
+  .event-card.past{
+    opacity:.55;
+    filter:grayscale(.6);
+  }
+  .past-badge{
+    display:inline-flex;
+    align-items:center;
+    height:22px;
+    padding:0 10px;
+    border-radius:20px;
+    font-size:.68rem;
+    font-weight:700;
+    background:#e3e0d9;
+    color:#6f6a63;
+    margin-left:6px;
+    vertical-align:middle;
+  }
+  .event-main{
+    display:flex;
+    gap:16px;
+    padding:18px;
+  }
+  .event-thumb{
+    width:92px;
+    height:92px;
+    border-radius:10px;
+    object-fit:cover;
+    flex-shrink:0;
+    background:var(--accent-soft);
+  }
+  .event-info{flex:1; min-width:0;}
+  .event-date{
+    font-size:.82rem;
+    color:var(--gold);
+    font-weight:700;
+    letter-spacing:.02em;
+    margin-bottom:4px;
+  }
+  .event-title{
+    font-size:1.02rem;
+    font-weight:700;
+    line-height:1.45;
+  }
+  .event-place{
+    font-size:.78rem;
+    color:var(--ink-soft);
+    margin-top:4px;
+  }
+  .event-actions{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    margin-top:14px;
+  }
+  .btn{
+    display:inline-flex;
+    align-items:center;
+    gap:5px;
+    height:34px;
+    padding:0 15px;
+    border-radius:20px;
+    font-size:.78rem;
+    font-weight:700;
+    font-family:inherit;
+    text-decoration:none;
+    border:none;
+    cursor:pointer;
+    white-space:nowrap;
+  }
+  .btn-toggle{ background:#f1efe9; color:var(--ink); }
+  .btn-toggle:hover{ background:#e8e4db; }
+  .btn-gcal{ background:var(--accent); color:#fff !important; }
+  .btn-gcal:hover{ background:#255650; }
+  .btn-sheet{ background:var(--ink); color:#fff !important; }
+  .btn-sheet:hover{ background:#000; }
+  .btn-join{ background:var(--gold); color:#fff; }
+  .btn-join:hover{ background:#9c7530; }
+  .btn-cancel{ background:#fff; color:var(--danger); border:1.5px solid var(--danger); }
+  .btn-cancel:hover{ background:#fbeee8; }
+
+  /* ── 参加登録 ── */
+  .join-row{ margin-top:10px; }
+  .join-status{
+    display:inline-flex;
+    align-items:center;
+    gap:5px;
+    height:34px;
+    padding:0 15px;
+    border-radius:20px;
+    font-size:.78rem;
+    font-weight:700;
+    background:var(--accent-soft);
+    color:var(--accent);
+    margin-right:8px;
+  }
+  .join-form{
+    display:flex;
+    gap:8px;
+    margin-top:10px;
+  }
+  .join-form input{
+    flex:1;
+    min-width:0;
+    padding:9px 12px;
+    border:1.5px solid var(--line);
+    border-radius:10px;
+    font-size:.85rem;
+    font-family:inherit;
+  }
+  .join-form input:focus{outline:none;border-color:var(--accent);}
+  .join-msg{
+    font-size:.76rem;
+    color:var(--danger);
+    margin-top:6px;
+  }
+  .join-msg.ok{ color:var(--accent); }
+
+  .arrow{ display:inline-block; transition:transform .2s; }
+  .arrow.open{ transform:rotate(180deg); }
+
+  /* ── 詳細パネル ── */
+  .event-detail{
+    display:none;
+    padding:0 18px 20px;
+    border-top:1px solid var(--line);
+  }
+  .event-detail.open{ display:block; }
+  .event-detail-inner{
+    font-size:.88rem;
+    color:#454138;
+    white-space:pre-wrap;
+    padding-top:14px;
+  }
+  .event-detail-inner a{
+    color:var(--accent);
+    word-break:break-all;
+    text-decoration:underline;
+  }
+
+  .list-empty{
+    text-align:center;
+    color:#b3aca2;
+    padding:70px 0;
+    font-size:.92rem;
+  }
+
+  footer{
+    text-align:center;
+    padding:24px;
+    color:#c3bcb0;
+    font-size:.75rem;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>予定一覧</h1>
+  <p>最新のイベント・開催情報はこちら</p>
+</header>
+
+<main>
+  <div class="tab-switch" id="tabSwitch"></div>
+  <div class="toolbar">
+    <input type="text" id="searchBox" placeholder="タイトルで検索">
+  </div>
+  <div class="extra-filters" id="extraFilters"></div>
+  <div class="category-filter" id="categoryFilter"></div>
+  <div id="statusMsg" class="list-empty" style="display:none;"></div>
+  <div id="eventList"></div>
+</main>
+
+<footer>© LunaRa Lab</footer>
+
+<script>
+/* ============================================================
+   タブ（予定の種類）ごとの設定はここにまとめます。
+
+   ▼準備手順
+   1. Googleスプレッドシートを開き、共有設定を
+      「リンクを知っている全員」→「閲覧者」に変更する
+      （ファイル→共有→アクセスできるユーザーの設定）
+   2. スプレッドシート内に、予定の種類ごとにシート（タブ）を作る
+      例：「イベント」タブ、「チームMTG」タブ
+   3. 各シートの1行目に同じ見出しを入れる：
+      image | title | place | start | end | detail | sheetUrl | category | region | pref
+      ※region（地域）・pref（県）は「イベント」タブのように
+        地域・県での絞り込みをしたいタブだけ用意すればOKです
+   4. スプレッドシートのURLから「SPREADSHEET_ID」をコピーする
+      例）https://docs.google.com/spreadsheets/d/【ここがID】/edit
+   5. 下のSPREADSHEET_IDに貼り付け、TABSに各シート名と表示名を追加する
+
+   ※シート名は日本語でもOKです（例："イベント"、"チームMTG"）。
+     スプレッドシート上のタブ名と完全に一致させてください。
+
+   ▼ filters について
+   タブごとに「地域orZOOM／県orZOOM／月」の絞り込みを出すかどうかを
+   filters配列で指定します。不要なタブは空配列 [] にしてください。
+   ============================================================ */
+const SPREADSHEET_ID = "1qzOUSIEb-yfikltC9dLhSqKQPRBImZABpw4OFRbxXko";
+
+const TABS = [
+  { key: "event", label: "イベント",       sheetName: "イベント",       filters: ["region", "pref", "month"] },
+  { key: "training", label: "視聴会・トレーニング", sheetName: "視聴会・トレーニング", filters: [] }
+  // タブを増やしたい場合はここに追記してください
+  // { key: "xxx", label: "表示名", sheetName: "スプシ側のシート名", filters: [] }
+];
+
+// 「地域orZOOM」の選択肢
+const REGION_OPTIONS = [
+  "ZOOM", "関東地域", "北海道地域", "東北地域", "北陸地域", "甲信越地域",
+  "東海地域", "関西地域", "四国地域", "中国地域", "九州地域", "沖縄地域", "海外"
+];
+
+// 「県orZOOM」の選択肢
+const PREF_OPTIONS = [
+  "ZOOM", "北海道", "青森県", "岩手県", "宮城県", "秋田県", "山形県", "福島県",
+  "東京23区", "西東京（23区外）", "神奈川県", "千葉県", "埼玉県", "茨城県", "栃木県", "群馬県",
+  "山梨県", "長野県", "新潟県", "富山県", "石川県", "福井県", "岐阜県", "静岡県", "愛知県", "三重県",
+  "滋賀県", "京都府", "大阪府", "兵庫県", "奈良県", "和歌山県", "鳥取県", "島根県", "岡山県", "広島県",
+  "山口県", "徳島県", "香川県", "愛媛県", "高知県", "福岡県", "佐賀県", "長崎県", "熊本県", "大分県",
+  "宮崎県", "鹿児島県", "沖縄県", "海外"
+];
+
+let currentTab = TABS[0].key;
+let EVENTS = [];
+let selectedCategory = "";
+let selectedRegion = "";
+let selectedPref = "";
+let selectedMonth = "all";
+const eventsCache = {}; // シートごとの読み込み結果をキャッシュ
+
+/* ============================================================
+   参加登録機能（Google Apps Script連携）
+
+   ①のスプシに紐づけたGASを「ウェブアプリ」としてデプロイし、
+   発行された .../exec のURLを下に貼ってください。
+   ============================================================ */
+const GAS_ENDPOINT_URL = "https://script.google.com/macros/s/AKfycbxK8LjySOpCmpgBYRni9yBKjzS77XQB7nFAhFEuxYp1xctKeeUiqamoPG7GExWpJhEN/exec";
+
+function getStoredName(){
+  return localStorage.getItem("participantName") || "";
+}
+function setStoredName(name){
+  localStorage.setItem("participantName", name);
+}
+function getJoinedMap(){
+  try{ return JSON.parse(localStorage.getItem("joinedEvents") || "{}"); }
+  catch(e){ return {}; }
+}
+function setJoinedMap(map){
+  localStorage.setItem("joinedEvents", JSON.stringify(map));
+}
+
+async function callGas(action, eventTitle, eventDate, name, category){
+  const url = new URL(GAS_ENDPOINT_URL);
+  url.searchParams.set("action", action);
+  url.searchParams.set("event", eventTitle);
+  url.searchParams.set("date", eventDate);
+  url.searchParams.set("name", name);
+  url.searchParams.set("category", category || "");
+  const res = await fetch(url.toString());
+  return res.json();
+}
+
+function buildSheetCsvUrl(sheetName){
+  const params = new URLSearchParams({ tqx: "out:csv", sheet: sheetName });
+  return `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?${params.toString()}`;
+}
+
+/* ============================================================
+   ここから下はロジック部分（通常は編集不要）
+   ============================================================ */
+
+function renderTabSwitch(){
+  const wrap = document.getElementById("tabSwitch");
+  wrap.innerHTML = TABS.map(tab => `
+    <button class="${currentTab === tab.key ? 'active' : ''}" data-key="${tab.key}">${escapeHtml(tab.label)}</button>
+  `).join("");
+
+  wrap.querySelectorAll("button").forEach(btn => {
+    btn.addEventListener("click", () => {
+      if(btn.dataset.key === currentTab) return;
+      currentTab = btn.dataset.key;
+      selectedCategory = "";
+      selectedRegion = "";
+      selectedPref = "";
+      selectedMonth = "all";
+      document.getElementById("searchBox").value = "";
+      renderTabSwitch();
+      loadEvents();
+    });
+  });
+}
+
+function loadEvents(){
+  const statusEl = document.getElementById("statusMsg");
+
+  if(eventsCache[currentTab]){
+    EVENTS = eventsCache[currentTab];
+    renderExtraFilters();
+    renderCategoryFilter();
+    render();
+    return;
+  }
+
+  statusEl.style.display = "block";
+  statusEl.textContent = "読み込み中…";
+  document.getElementById("eventList").innerHTML = "";
+
+  const tab = TABS.find(t => t.key === currentTab);
+
+  Papa.parse(buildSheetCsvUrl(tab.sheetName), {
+    download: true,
+    header: true,
+    skipEmptyLines: true,
+    complete: (results) => {
+      const parsed = results.data
+        .filter(row => row.title && row.start)
+        .map(row => ({
+          image: (row.image || "").trim(),
+          title: (row.title || "").trim(),
+          place: (row.place || "").trim(),
+          start: (row.start || "").trim(),
+          end: (row.end || "").trim(),
+          detail: row.detail || "",
+          sheetUrl: (row.sheetUrl || "").trim() || null,
+          region: (row.region || "").trim(),
+          pref: (row.pref || "").trim(),
+          categories: (row.category || "")
+            .split(",")
+            .map(c => c.trim())
+            .filter(Boolean)
+        }));
+        parsed.sort((a, b) => new Date(a.start) - new Date(b.start));
+      eventsCache[currentTab] = parsed;
+      EVENTS = parsed;
+      statusEl.style.display = "none";
+      renderExtraFilters();
+      renderCategoryFilter();
+      render();
+    },
+    error: () => {
+      statusEl.style.display = "block";
+      statusEl.textContent = "予定の読み込みに失敗しました。シート名・共有設定をご確認ください。";
+    }
+  });
+}
+
+// 現在のタブ設定に応じて「地域orZOOM／県orZOOM／月」の絞り込みを描画
+function renderExtraFilters(){
+  const wrap = document.getElementById("extraFilters");
+  const tab = TABS.find(t => t.key === currentTab);
+  const filters = tab.filters || [];
+
+  if(filters.length === 0){
+    wrap.innerHTML = "";
+    return;
+  }
+
+  let html = "";
+
+  if(filters.includes("region")){
+    html += `<select id="filterRegion">
+      <option value="">地域orZOOM - すべて -</option>
+      ${REGION_OPTIONS.map(r => `<option value="${escapeHtml(r)}" ${selectedRegion === r ? "selected" : ""}>${escapeHtml(r)}</option>`).join("")}
+    </select>`;
+  }
+  if(filters.includes("pref")){
+    html += `<select id="filterPref">
+      <option value="">県orZOOM - すべて -</option>
+      ${PREF_OPTIONS.map(p => `<option value="${escapeHtml(p)}" ${selectedPref === p ? "selected" : ""}>${escapeHtml(p)}</option>`).join("")}
+    </select>`;
+  }
+  if(filters.includes("month")){
+    html += `<select id="filterMonth">
+      <option value="all" ${selectedMonth === "all" ? "selected" : ""}>月 - すべて -</option>
+      <option value="this" ${selectedMonth === "this" ? "selected" : ""}>今月</option>
+      <option value="next" ${selectedMonth === "next" ? "selected" : ""}>来月</option>
+      <option value="nextnext" ${selectedMonth === "nextnext" ? "selected" : ""}>再来月</option>
+    </select>`;
+  }
+
+  wrap.innerHTML = html;
+
+  const regionEl = document.getElementById("filterRegion");
+  const prefEl = document.getElementById("filterPref");
+  const monthEl = document.getElementById("filterMonth");
+
+  if(regionEl) regionEl.addEventListener("change", () => { selectedRegion = regionEl.value; render(); });
+  if(prefEl) prefEl.addEventListener("change", () => { selectedPref = prefEl.value; render(); });
+  if(monthEl) monthEl.addEventListener("change", () => { selectedMonth = monthEl.value; render(); });
+}
+
+// 「今月／来月／再来月」の判定
+function matchesMonth(startIso, monthFilter){
+  if(monthFilter === "all") return true;
+  const now = new Date();
+  const target = new Date(now.getFullYear(), now.getMonth(), 1);
+  if(monthFilter === "next") target.setMonth(target.getMonth() + 1);
+  if(monthFilter === "nextnext") target.setMonth(target.getMonth() + 2);
+  const d = new Date(startIso);
+  return d.getFullYear() === target.getFullYear() && d.getMonth() === target.getMonth();
+}
+
+// EVENTSに登場するカテゴリーからフィルターボタンを自動生成
+function renderCategoryFilter(){
+  const wrap = document.getElementById("categoryFilter");
+  const allCategories = [...new Set(EVENTS.flatMap(ev => ev.categories))];
+
+  if(allCategories.length === 0){
+    wrap.innerHTML = "";
+    return;
+  }
+
+  const chips = ["", ...allCategories];
+  wrap.innerHTML = chips.map(cat => `
+    <button class="category-chip ${selectedCategory === cat ? 'active' : ''}" data-cat="${escapeHtml(cat)}">
+      ${cat === "" ? "すべて" : escapeHtml(cat)}
+    </button>
+  `).join("");
+
+  wrap.querySelectorAll(".category-chip").forEach(btn => {
+    btn.addEventListener("click", () => {
+      selectedCategory = btn.dataset.cat;
+      renderCategoryFilter();
+      render();
+    });
+  });
+}
+
+// 日付表示用フォーマット（例: 2026年8月5日（水） 20:00）
+function formatDate(iso){
+  const hasTime = iso.length > 10;
+  const d = new Date(iso);
+  const dow = ["日","月","火","水","木","金","土"][d.getDay()];
+  const base = `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日（${dow}）`;
+  if(!hasTime) return base;
+  const hh = String(d.getHours()).padStart(2,"0");
+  const mm = String(d.getMinutes()).padStart(2,"0");
+  return `${base} ${hh}:${mm}`;
+}
+
+function formatDateRange(start, end){
+  if(!end || end === start) return formatDate(start);
+  return `${formatDate(start)} 〜 ${formatDate(end)}`;
+}
+
+// 終了日時が「今」より前かどうかを判定
+function isPastEvent(ev){
+  const refIso = ev.end || ev.start;
+  let refDate = new Date(refIso);
+  if(refIso.length <= 10){
+    // 終了日のみ指定（時刻なし）の場合はその日の終わりまでを開催中とみなす
+    refDate.setHours(23, 59, 59, 999);
+  }
+  return refDate.getTime() < Date.now();
+}
+
+// Googleカレンダー追加リンクを自動生成（手打ち不要）
+function buildGcalUrl(ev){
+  const toGcalStamp = (iso, isEnd) => {
+    const allDay = iso.length <= 10;
+    let d = new Date(iso);
+    if(allDay && isEnd){
+      // 終日イベントの終了日はGoogleカレンダー仕様上+1日する
+      d = new Date(d.getTime() + 24*60*60*1000);
+    }
+    const pad = n => String(n).padStart(2,"0");
+    if(allDay){
+      return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`;
+    }
+    return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}00`;
+  };
+  const start = toGcalStamp(ev.start, false);
+  const end = toGcalStamp(ev.end || ev.start, true);
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    text: ev.title,
+    dates: `${start}/${end}`,
+    details: ev.detail,
+    ctz: "Asia/Tokyo"
+  });
+  if(ev.place) params.set("location", ev.place);
+  return `https://www.google.com/calendar/render?${params.toString()}`;
+}
+
+let openIndex = null;
+
+function render(){
+  const list = document.getElementById("eventList");
+  const q = document.getElementById("searchBox").value.trim().toLowerCase();
+  const filtered = EVENTS
+    .map((ev, i) => ({ ev, i }))
+    .filter(({ev}) => !q || ev.title.toLowerCase().includes(q))
+    .filter(({ev}) => !selectedCategory || ev.categories.includes(selectedCategory))
+    .filter(({ev}) => !selectedRegion || ev.region === selectedRegion)
+    .filter(({ev}) => !selectedPref || ev.pref === selectedPref)
+    .filter(({ev}) => matchesMonth(ev.start, selectedMonth));
+
+  if(filtered.length === 0){
+    list.innerHTML = `<div class="list-empty">該当する予定がありません</div>`;
+    return;
+  }
+
+  list.innerHTML = filtered.map(({ev, i}) => `
+    <div class="event-card ${isPastEvent(ev) ? 'past' : ''}">
+      <div class="event-main">
+        ${ev.image
+          ? `<img class="event-thumb" src="${ev.image}" alt="">`
+          : `<div class="event-thumb" style="display:flex;align-items:center;justify-content:center;font-size:1.6rem;">📅</div>`
+        }
+        <div class="event-info">
+          <div class="event-date">${formatDateRange(ev.start, ev.end)}${isPastEvent(ev) ? '<span class="past-badge">終了しました</span>' : ''}</div>
+          <div class="event-title">${ev.title}</div>
+          ${ev.place ? `<div class="event-place">${ev.place}</div>` : ""}
+          ${ev.categories.length ? `
+          <div class="event-tags">
+            ${ev.categories.map(c => `<span class="event-tag">${escapeHtml(c)}</span>`).join("")}
+          </div>` : ""}
+          <div class="event-actions">
+            <button class="btn btn-toggle" onclick="toggleDetail(${i})">
+              詳細を見る <span class="arrow" id="arrow-${i}">▼</span>
+            </button>
+            ${!isPastEvent(ev) ? `
+            <a class="btn btn-gcal" href="${buildGcalUrl(ev)}" target="_blank" rel="noopener">
+              📅 Googleカレンダーに追加
+            </a>` : ""}
+            ${!isPastEvent(ev) && ev.sheetUrl ? `
+            <a class="btn btn-sheet" href="${ev.sheetUrl}" target="_blank" rel="noopener">
+              📊 申し込みする
+            </a>` : ""}
+          </div>
+          <div class="join-row" id="join-${i}"></div>
+        </div>
+      </div>
+      <div class="event-detail" id="detail-${i}">
+        <div class="event-detail-inner">${linkify(escapeHtml(ev.detail))}</div>
+      </div>
+    </div>
+  `).join("");
+
+  filtered.forEach(({ev, i}) => renderJoinRow(ev, i));
+}
+
+function toggleDetail(i){
+  const detail = document.getElementById(`detail-${i}`);
+  const arrow = document.getElementById(`arrow-${i}`);
+  const isOpen = detail.classList.contains("open");
+  detail.classList.toggle("open", !isOpen);
+  arrow.classList.toggle("open", !isOpen);
+}
+
+// 参加ボタン／登録済み表示を、そのイベントの状態に応じて描画
+function renderJoinRow(ev, i){
+  const row = document.getElementById(`join-${i}`);
+  if(!row) return;
+
+  if(isPastEvent(ev)){
+    row.innerHTML = "";
+    return;
+  }
+
+  const joined = getJoinedMap()[ev.title];
+
+  if(joined){
+    row.innerHTML = `
+      <span class="join-status">✓ 申込み表明済み</span>
+      <button class="btn btn-cancel" onclick="handleCancel(${i})">キャンセルする</button>
+    `;
+    return;
+  }
+
+  row.innerHTML = `<button class="btn btn-join" onclick="showJoinForm(${i})">🙋 申込んだらタップ</button>`;
+}
+
+function showJoinForm(i){
+  const row = document.getElementById(`join-${i}`);
+  row.innerHTML = `
+    <div class="join-form">
+      <input type="text" id="joinName-${i}" placeholder="お名前・ニックネーム" value="${escapeHtml(getStoredName())}">
+      <button class="btn btn-join" onclick="handleJoinSubmit(${i})">送信</button>
+    </div>
+    <div class="join-msg" id="joinMsg-${i}"></div>
+  `;
+}
+
+async function handleJoinSubmit(i){
+  const ev = EVENTS[i];
+  const input = document.getElementById(`joinName-${i}`);
+  const msgEl = document.getElementById(`joinMsg-${i}`);
+  const name = input.value.trim();
+
+  if(!name){
+    msgEl.textContent = "お名前を入力してください";
+    msgEl.classList.remove("ok");
+    return;
+  }
+
+  msgEl.textContent = "送信中…";
+  msgEl.classList.remove("ok");
+
+  try{
+    const result = await callGas("join", ev.title, formatDateRange(ev.start, ev.end), name, ev.categories.join(","));
+
+    if(result.result === "ok"){
+      setStoredName(name);
+      const map = getJoinedMap();
+      map[ev.title] = true;
+      setJoinedMap(map);
+      renderJoinRow(ev, i);
+    } else if(result.result === "duplicate"){
+      setStoredName(name);
+      const map = getJoinedMap();
+      map[ev.title] = true;
+      setJoinedMap(map);
+      renderJoinRow(ev, i);
+    } else {
+      msgEl.textContent = "登録に失敗しました。もう一度お試しください";
+    }
+  } catch(err){
+    msgEl.textContent = "通信エラーが発生しました。時間をおいて再度お試しください";
+  }
+}
+
+async function handleCancel(i){
+  const ev = EVENTS[i];
+  const name = getStoredName();
+
+  if(!name){
+    alert("登録時のお名前が確認できませんでした。お手数ですが管理者へご連絡ください。");
+    return;
+  }
+
+  try{
+    const result = await callGas("cancel", ev.title, formatDateRange(ev.start, ev.end), name);
+
+    if(result.result === "ok" || result.result === "not_found"){
+      const map = getJoinedMap();
+      delete map[ev.title];
+      setJoinedMap(map);
+      renderJoinRow(ev, i);
+    } else {
+      alert("キャンセル処理に失敗しました。時間をおいて再度お試しください。");
+    }
+  } catch(err){
+    alert("通信エラーが発生しました。時間をおいて再度お試しください。");
+  }
+}
+
+function escapeHtml(str){
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// テキスト中のURLを自動的にリンクに変換する（文章とURLが混在していてもOK）
+function linkify(escapedText){
+  const urlRegex = /((https?:\/\/|www\.)[^\s<]+)/g;
+  return escapedText.replace(urlRegex, (match) => {
+    const href = match.startsWith("http") ? match : `https://${match}`;
+    return `<a href="${href}" target="_blank" rel="noopener">${match}</a>`;
+  });
+}
+
+document.getElementById("searchBox").addEventListener("input", () => {
+  render();
+});
+
+renderTabSwitch();
+loadEvents();
+</script>
+</body>
+</html>
