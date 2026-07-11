@@ -398,17 +398,19 @@ const CONFIG = {
   // 参加者データの書き込み先(GASが直接書き込む場所)。月をまたぐ単一タブ。
   PARTICIPANTS_SOURCE: {
     SPREADSHEET_ID: '1rmy1VNkjKLO9SiwgxJOSXjGp06Vag-R1G8l-SRIvSSs',
-    SCHEDULE_TAB: 'グルコン/ユーサポ', // 列: 大区分,担当者・講師,日程,参加者,グルコンリーダー,紹介者
-    FIRST_FOLLOW_TAB: '初回フォロー' // 列: 日程,担当者,参加者
+    SCHEDULE_TAB: 'グルコン/ユーサポ', // 列: 大区分,担当者・講師,日程,参加者,グルコンリーダー,紹介者,入力チェック,備考,元シート行番号（書き込み用）
+    SCHEDULE_TAB_GID: '1011201121',
+    FIRST_FOLLOW_TAB: '初回フォロー', // 列: 日程,担当者,参加者,zoom,入力チェック
+    FIRST_FOLLOW_TAB_GID: '1676811778'
   },
 
   // GAS(参加登録用)のウェブアプリURL。register/join/cancelの全アクションで共通。
-  GAS_URL: 'https://script.google.com/macros/s/AKfycbxpcdTwUBRPpOAC3aWs8RX1PVtzXujPOIlt7SkOR3pDZMrbJpxuOom2U0i6lQEZEI2L/exec',
+  GAS_URL: 'https://script.google.com/macros/s/AKfycbz907tSgpTY15_W43Uo_s0meEukgrsAfxD7j4LnDzv1Q3GVH-K4OKgEcuhacHmWi5Hs/exec',
 
   // 表示する月(日程文字列 "7/3(月)..." の先頭月数字で絞り込む)
   MONTHS: [
-    { label: '2026年7月', month: 7 }
-    // { label: '2026年8月', month: 8 },
+    { label: '2026年7月', month: 7, year: 2026 }
+    // { label: '2026年8月', month: 8, year: 2026 },
   ],
 
   // 視聴会・トレーニングのデータ元(別のスプレッドシート。参加登録あり)
@@ -431,6 +433,11 @@ const CONFIG = {
 };
 /* ========================================= */
 
+// 参加者データの該当行を直接開くURL(該当タブ・該当行にジャンプ)
+function buildSheetRowUrl(gid, row) {
+  return `https://docs.google.com/spreadsheets/d/${CONFIG.PARTICIPANTS_SOURCE.SPREADSHEET_ID}/edit#gid=${gid}&range=A${row}`;
+}
+
 function stripInvisible(str) {
   return (str || '').replace(/[\u200B-\u200D\uFEFF]/g, '').trim();
 }
@@ -438,6 +445,32 @@ function stripInvisible(str) {
 function monthFromJpDatetime(str) {
   const m = (str || '').match(/^(\d{1,2})\//);
   return m ? parseInt(m[1], 10) : null;
+}
+
+// "7/3(月)12:30-14:30" のような日程文字列から、終了時刻(無ければ最後に出てくる時刻、
+// それも無ければその日の終わり 23:59)を割り出してDateを作る
+function parseJpScheduleEnd(str, year) {
+  const md = (str || '').match(/^(\d{1,2})\/(\d{1,2})/);
+  if (!md) return null;
+  const month = parseInt(md[1], 10);
+  const day = parseInt(md[2], 10);
+
+  const times = [...(str || '').matchAll(/(\d{1,2}):(\d{2})/g)];
+  let hour = 23;
+  let minute = 59;
+  if (times.length > 0) {
+    const last = times[times.length - 1];
+    hour = parseInt(last[1], 10);
+    minute = parseInt(last[2], 10);
+  }
+  return new Date(year, month - 1, day, hour, minute);
+}
+
+// 終了時刻が現在より前(=開催が終わっている)かどうか
+function isScheduleRowPast(datetimeStr, year) {
+  const end = parseJpScheduleEnd(datetimeStr, year);
+  if (!end) return false;
+  return end.getTime() < Date.now();
 }
 
 function escapeHtml(str) {
@@ -595,6 +628,7 @@ function loadData() {
           const datetime = (r['日程'] || '').trim();
           const leader = stripInvisible(r['グルコンリーダー']);
           const zoomUrl = (r['zoomURL'] || '').trim();
+          const applyUrl = (r['申込シート'] || '').trim() || null;
           const matched = participantMap[`${section}|${datetime}`];
           return {
             category,
@@ -602,27 +636,34 @@ function loadData() {
             datetime,
             leader,
             zoomUrl,
+            applyUrl,
             participants: matched ? matched.participants : '',
             referrer: matched ? matched.referrer : '',
-            rawRow: matched ? matched.row : ''
+            rawRow: matched ? matched.row : '',
+            tabGid: CONFIG.PARTICIPANTS_SOURCE.SCHEDULE_TAB_GID
           };
         })
-        .filter(r => !(r.category === 'グループコンサル' && !r.leader));
+        .filter(r => !(r.category === 'グループコンサル' && !r.leader))
+        .filter(r => !isScheduleRowPast(r.datetime, month.year));
 
       const firstFollowRows = ffData
         .map((r, i) => ({
           idx: i,
           datetime: (r[0] || '').trim(),
           leader: (r[1] || '').trim(),
-          participants: (r[2] || '').trim()
+          participants: (r[2] || '').trim(),
+          zoomUrl: (r[3] || '').trim()
         }))
         .filter(r => r.idx !== 0 && r.datetime !== '' && monthFromJpDatetime(r.datetime) === month.month)
+        .filter(r => !isScheduleRowPast(r.datetime, month.year))
         .map(r => ({
           category: '初回フォロー',
           datetime: r.datetime,
           leader: r.leader,
           participants: r.participants,
-          rawRow: r.idx + 1
+          zoomUrl: r.zoomUrl,
+          rawRow: r.idx + 1,
+          tabGid: CONFIG.PARTICIPANTS_SOURCE.FIRST_FOLLOW_TAB_GID
         }));
 
       cachedFirstFollowRows = firstFollowRows;
@@ -754,28 +795,58 @@ function makeRowCard(r) {
   }
   card.appendChild(fields);
 
-  if (r.zoomUrl) {
-    const zoomId = `zoom-${scheduleCardIdCounter++}`;
-    const zoomToggle = document.createElement('button');
-    zoomToggle.className = 'btn btn-toggle';
-    zoomToggle.style.marginTop = '8px';
-    zoomToggle.textContent = 'Zoomはこちら ▼';
-    zoomToggle.addEventListener('click', () => {
-      const el = document.getElementById(zoomId);
-      const isOpen = el.style.display === 'block';
-      el.style.display = isOpen ? 'none' : 'block';
-      zoomToggle.textContent = isOpen ? 'Zoomはこちら ▼' : 'Zoomはこちら ▲';
-    });
-    card.appendChild(zoomToggle);
+  if (r.zoomUrl || r.applyUrl || r.rawRow) {
+    const actionsWrap = document.createElement('div');
+    actionsWrap.className = 'event-actions';
+    actionsWrap.style.marginTop = '8px';
 
-    const zoomEl = document.createElement('div');
-    zoomEl.id = zoomId;
-    zoomEl.className = 'field';
-    zoomEl.style.marginTop = '6px';
-    zoomEl.style.whiteSpace = 'pre-wrap';
-    zoomEl.style.display = 'none';
-    zoomEl.innerHTML = linkify(escapeHtml(r.zoomUrl));
-    card.appendChild(zoomEl);
+    let zoomId = null;
+    if (r.zoomUrl) {
+      zoomId = `zoom-${scheduleCardIdCounter++}`;
+      const zoomToggle = document.createElement('button');
+      zoomToggle.className = 'btn btn-toggle';
+      zoomToggle.textContent = 'Zoomはこちら ▼';
+      zoomToggle.addEventListener('click', () => {
+        const el = document.getElementById(zoomId);
+        const isOpen = el.style.display === 'block';
+        el.style.display = isOpen ? 'none' : 'block';
+        zoomToggle.textContent = isOpen ? 'Zoomはこちら ▼' : 'Zoomはこちら ▲';
+      });
+      actionsWrap.appendChild(zoomToggle);
+    }
+
+    if (r.applyUrl) {
+      const applyLink = document.createElement('a');
+      applyLink.className = 'btn btn-sheet';
+      applyLink.href = r.applyUrl;
+      applyLink.target = '_blank';
+      applyLink.rel = 'noopener';
+      applyLink.textContent = '📝 申込をする';
+      actionsWrap.appendChild(applyLink);
+    }
+
+    if (r.rawRow && r.tabGid) {
+      const checkLink = document.createElement('a');
+      checkLink.className = 'btn btn-sheet';
+      checkLink.href = buildSheetRowUrl(r.tabGid, r.rawRow);
+      checkLink.target = '_blank';
+      checkLink.rel = 'noopener';
+      checkLink.textContent = '🔍 入力確認する';
+      actionsWrap.appendChild(checkLink);
+    }
+
+    card.appendChild(actionsWrap);
+
+    if (r.zoomUrl) {
+      const zoomEl = document.createElement('div');
+      zoomEl.id = zoomId;
+      zoomEl.className = 'field';
+      zoomEl.style.marginTop = '6px';
+      zoomEl.style.whiteSpace = 'pre-wrap';
+      zoomEl.style.display = 'none';
+      zoomEl.innerHTML = linkify(escapeHtml(r.zoomUrl));
+      card.appendChild(zoomEl);
+    }
   }
 
   const form = document.createElement('div');
@@ -901,7 +972,6 @@ function loadTrainingEvents() {
           place: (row.place || '').trim(),
           start: (row.start || '').trim(),
           end: (row.end || '').trim(),
-          applyUrl: (row['申込シート'] || '').trim() || null,
           detail: row.detail || '',
           sheetUrl: (row.sheetUrl || '').trim() || null,
           categories: (row.category || '')
