@@ -164,18 +164,24 @@
 <script>
 /* ================= 設定 ================= */
 const CONFIG = {
-  // 正規化シートが入っているスプレッドシートのID
+  // 正規化シートが入っているスプレッドシートのID(初回フォロー/グループコンサル/ユーザーサポート会)
   SPREADSHEET_ID: 'YOUR_SPREADSHEET_ID',
 
   // GAS(参加登録用)のウェブアプリURL
   GAS_URL: 'YOUR_GAS_WEBAPP_URL',
 
   // 月ごとの正規化シートタブ名と、書き込み先の元シートタブ名のペア
-  // 新しい月が増えたらここに追加していく
+  // 新しい月が増えたらここに追加していく(yearMonthは視聴会/トレーニングの絞り込みに使用)
   MONTHS: [
-    { label: '2026年7月', normalizedSheet: '0_正規化_7月', rawSheet: '7月' }
-    // { label: '2026年8月', normalizedSheet: '0_正規化_8月', rawSheet: '8月' },
+    { label: '2026年7月', normalizedSheet: '0_正規化_7月', rawSheet: '7月', yearMonth: '2026-07' }
+    // { label: '2026年8月', normalizedSheet: '0_正規化_8月', rawSheet: '8月', yearMonth: '2026-08' },
   ],
+
+  // 視聴会・トレーニングのデータ元(別のスプレッドシート。表示のみ、参加登録なし)
+  TRAINING_SOURCE: {
+    SPREADSHEET_ID: '1qzOUSIEb-yfikltC9dLhSqKQPRBImZABpw4OFRbxXko',
+    SHEET_NAME: 'LDS_Schedule（入力用）' // ← 実際のタブ名に合わせて調整してください
+  },
 
   // 表示する大区分の順番
   CATEGORY_ORDER: ['初回フォロー', 'グループコンサル', 'ユーザーサポート会', '視聴会', 'トレーニング']
@@ -197,19 +203,40 @@ function init() {
   loadData();
 }
 
-function csvUrl(sheetName) {
-  return `https://docs.google.com/spreadsheets/d/${CONFIG.SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
+function csvUrl(spreadsheetId, sheetName) {
+  return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
+}
+
+function parseCsv(url, header) {
+  return new Promise((resolve, reject) => {
+    Papa.parse(url, {
+      download: true,
+      header: !!header,
+      complete: (results) => resolve(results.data),
+      error: (err) => reject(err)
+    });
+  });
+}
+
+// 視聴会/トレーニングのcategory値をこのサイトの2区分にふり分ける判定。
+// 実際のcategory列の値(例:「視聴会」「Bトレ」など)に合わせて調整してください。
+function mapTrainingCategory(catRaw) {
+  const c = (catRaw || '').trim();
+  if (c.includes('視聴')) return '視聴会';
+  return 'トレーニング';
 }
 
 function loadData() {
   const month = CONFIG.MONTHS[monthSelect.value];
-  contentEl.innerHTML = '<div class="loading">読み込み中...</div>';
+  contentEl.innerHTML = '<div class="loading">読み込み中…</div>';
   statusEl.textContent = '';
 
-  Papa.parse(csvUrl(month.normalizedSheet), {
-    download: true,
-    complete: (results) => {
-      const rows = results.data
+  const normalizedUrl = csvUrl(CONFIG.SPREADSHEET_ID, month.normalizedSheet);
+  const trainingUrl = csvUrl(CONFIG.TRAINING_SOURCE.SPREADSHEET_ID, CONFIG.TRAINING_SOURCE.SHEET_NAME);
+
+  Promise.all([parseCsv(normalizedUrl, false), parseCsv(trainingUrl, true)])
+    .then(([normData, trainingData]) => {
+      const rows = normData
         .filter(r => r.length >= 8 && (r[2] || '').trim() !== '') // C列(日程)が空でない行のみ
         .map(r => ({
           category: (r[0] || '').trim(),
@@ -221,25 +248,69 @@ function loadData() {
           note: (r[6] || '').trim(),
           rawRow: (r[7] || '').trim()
         }));
-      render(rows, month);
-    },
-    error: () => {
+
+      const trainingRows = trainingData
+        .filter(r => r.title && r.start && matchesMonth(r.start, month.yearMonth))
+        .map(r => ({
+          category: mapTrainingCategory(r.category),
+          title: (r.title || '').trim(),
+          place: (r.place || '').trim(),
+          start: (r.start || '').trim(),
+          end: (r.end || '').trim(),
+          detail: (r.detail || '').trim(),
+          sheetUrl: (r.sheetUrl || '').trim()
+        }))
+        .sort((a, b) => new Date(a.start) - new Date(b.start));
+
+      render(rows, trainingRows, month);
+    })
+    .catch(() => {
       contentEl.innerHTML = '<div class="empty-state">データの取得に失敗しました。シート名やIDを確認してください。</div>';
-    }
-  });
+    });
 }
 
-function render(rows, month) {
-  if (rows.length === 0) {
-    contentEl.innerHTML = '<div class="empty-state">この月のデータがありません。</div>';
-    return;
-  }
+function matchesMonth(startStr, yearMonth) {
+  const d = new Date(startStr.replace(/\//g, '-'));
+  if (isNaN(d.getTime())) return false;
+  const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  return ym === yearMonth;
+}
 
+function formatTrainingDateTime(startStr, endStr) {
+  const start = new Date(startStr.replace(/\//g, '-'));
+  const end = endStr ? new Date(endStr.replace(/\//g, '-')) : null;
+  const week = ['日', '月', '火', '水', '木', '金', '土'];
+  const pad = n => String(n).padStart(2, '0');
+  const s = `${start.getMonth() + 1}/${start.getDate()}(${week[start.getDay()]}) ${pad(start.getHours())}:${pad(start.getMinutes())}`;
+  if (!end || isNaN(end.getTime())) return s;
+  return `${s}〜${pad(end.getHours())}:${pad(end.getMinutes())}`;
+}
+
+function render(rows, trainingRows, month) {
   contentEl.innerHTML = '';
+  let totalCount = 0;
 
   CONFIG.CATEGORY_ORDER.forEach(category => {
+    if (category === '視聴会' || category === 'トレーニング') {
+      const items = trainingRows.filter(r => r.category === category);
+      if (items.length === 0) return;
+      totalCount += items.length;
+
+      const block = document.createElement('div');
+      block.className = 'block';
+      const blockTitle = document.createElement('div');
+      blockTitle.className = 'block-title';
+      blockTitle.textContent = category;
+      block.appendChild(blockTitle);
+
+      items.forEach(item => block.appendChild(makeTrainingCard(item)));
+      contentEl.appendChild(block);
+      return;
+    }
+
     const catRows = rows.filter(r => r.category === category);
     if (catRows.length === 0) return;
+    totalCount += catRows.length;
 
     const block = document.createElement('div');
     block.className = 'block';
@@ -280,7 +351,71 @@ function render(rows, month) {
     contentEl.appendChild(block);
   });
 
-  statusEl.textContent = `${rows.length}件の枠を表示中`;
+  if (totalCount === 0) {
+    contentEl.innerHTML = '<div class="empty-state">この月のデータがありません。</div>';
+    statusEl.textContent = '';
+    return;
+  }
+
+  statusEl.textContent = `${totalCount}件を表示中`;
+}
+
+// 視聴会・トレーニング用カード(表示のみ、参加登録フォームなし)
+function makeTrainingCard(item) {
+  const card = document.createElement('div');
+  card.className = 'row-card';
+
+  const top = document.createElement('div');
+  top.className = 'row-top';
+  const dt = document.createElement('div');
+  dt.className = 'datetime';
+  dt.textContent = formatTrainingDateTime(item.start, item.end);
+  top.appendChild(dt);
+  card.appendChild(top);
+
+  const titleEl = document.createElement('div');
+  titleEl.style.fontWeight = '700';
+  titleEl.style.marginTop = '4px';
+  titleEl.textContent = item.title;
+  card.appendChild(titleEl);
+
+  const fields = document.createElement('div');
+  fields.className = 'fields';
+  if (item.place) fields.appendChild(makeField('会場', item.place));
+  card.appendChild(fields);
+
+  if (item.detail) {
+    const detailEl = document.createElement('div');
+    detailEl.className = 'field';
+    detailEl.style.marginTop = '6px';
+    detailEl.style.whiteSpace = 'pre-wrap';
+    detailEl.innerHTML = linkify(escapeHtml(item.detail));
+    card.appendChild(detailEl);
+  }
+
+  if (item.sheetUrl) {
+    const linkEl = document.createElement('a');
+    linkEl.href = item.sheetUrl;
+    linkEl.target = '_blank';
+    linkEl.rel = 'noopener';
+    linkEl.className = 'field';
+    linkEl.style.display = 'inline-block';
+    linkEl.style.marginTop = '8px';
+    linkEl.style.color = 'var(--accent)';
+    linkEl.textContent = '管理表を開く →';
+    card.appendChild(linkEl);
+  }
+
+  return card;
+}
+
+// テキスト中のURLを自動的にリンクに変換する
+function linkify(escapedText) {
+  const urlRegex = /((https?:\/\/|www\.)[^\s<]+)/g;
+  return escapedText.replace(urlRegex, (match) => {
+    const href = match.startsWith('http') ? match : `https://${match}`;
+    return `<a href="${href}" target="_blank" rel="noopener">${match}</a>`;
+  });
 }
 
 function makeRowCard(r, month) {
