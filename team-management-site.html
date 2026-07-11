@@ -178,7 +178,7 @@ const CONFIG = {
   ],
 
   // 表示する大区分の順番
-  CATEGORY_ORDER: ['初回フォロー', 'グループコンサル', 'ユーザーサポート会']
+  CATEGORY_ORDER: ['初回フォロー', 'グループコンサル', 'ユーザーサポート会', '視聴会', 'トレーニング']
 };
 /* ========================================= */
 
@@ -263,11 +263,16 @@ function render(rows, month) {
         grouped[r.section].push(r);
       });
 
+      // セクションが1つしかなく、かつ大区分名と同じ場合は見出しの二重表示を避ける
+      const skipSectionTitle = sectionOrder.length === 1 && sectionOrder[0] === category;
+
       sectionOrder.forEach(section => {
-        const sTitle = document.createElement('div');
-        sTitle.className = 'section-title';
-        sTitle.textContent = section;
-        block.appendChild(sTitle);
+        if (!skipSectionTitle) {
+          const sTitle = document.createElement('div');
+          sTitle.className = 'section-title';
+          sTitle.textContent = section;
+          block.appendChild(sTitle);
+        }
         grouped[section].forEach(r => block.appendChild(makeRowCard(r, month)));
       });
     }
