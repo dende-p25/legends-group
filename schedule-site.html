@@ -90,6 +90,30 @@
   }
   .toolbar input:focus{outline:none;border-color:var(--accent);}
 
+  /* ── タイムゾーン選択 ── */
+  .timezone-select{
+    margin-bottom:14px;
+  }
+  .timezone-select select{
+    width:100%;
+    padding:10px 12px;
+    border:1.5px solid var(--line);
+    border-radius:10px;
+    font-size:.82rem;
+    font-family:inherit;
+    background:#fff;
+    color:var(--ink);
+  }
+  .timezone-select select:focus{outline:none;border-color:var(--accent);}
+
+  /* ── 現地時間の表示 ── */
+  .local-time{
+    font-size:.76rem;
+    color:var(--ink-soft);
+    margin-top:3px;
+  }
+  .local-time .globe{ margin-right:2px; }
+
   /* ── 追加フィルター（地域・県・月） ── */
   .extra-filters{
     display:flex;
@@ -322,6 +346,7 @@
 
 <main>
   <div class="tab-switch" id="tabSwitch"></div>
+  <div class="timezone-select" id="timezoneSelect"></div>
   <div class="toolbar">
     <input type="text" id="searchBox" placeholder="タイトルで検索">
   </div>
@@ -451,6 +476,23 @@ function renderTabSwitch(){
       renderTabSwitch();
       loadEvents();
     });
+  });
+}
+
+// タイムゾーン選択のプルダウンを描画
+function renderTimezoneSelect(){
+  const wrap = document.getElementById("timezoneSelect");
+  const currentKey = getSelectedTimeZoneKey();
+
+  wrap.innerHTML = `
+    <select id="timezonePicker">
+      ${TIMEZONE_OPTIONS.map(opt => `<option value="${opt.key}" ${opt.key === currentKey ? "selected" : ""}>${opt.label}</option>`).join("")}
+    </select>
+  `;
+
+  document.getElementById("timezonePicker").addEventListener("change", (e) => {
+    setSelectedTimeZoneKey(e.target.value);
+    render();
   });
 }
 
@@ -590,16 +632,71 @@ function renderCategoryFilter(){
   });
 }
 
-// 日付表示用フォーマット（例: 2026年8月5日（水） 20:00）
-function formatDate(iso){
+/* ============================================================
+   海外時間表示について
+
+   スプシの日時（例：2026-07-25T21:00）は「日本時間」として
+   入力されている前提で扱います。表示側では、これを正しく
+   日本時間の絶対時刻に変換したうえで、閲覧者が選んだ
+   タイムゾーンに変換して表示します。
+   ============================================================ */
+const TIMEZONE_OPTIONS = [
+  { key: "auto", label: "🌏 自動検出（この端末の設定）", tz: null },
+  { key: "jst",  label: "🇯🇵 日本時間 (JST)",           tz: "Asia/Tokyo" },
+  { key: "svn",  label: "🇸🇮 スロベニア時間",            tz: "Europe/Ljubljana" },
+  { key: "mys",  label: "🇲🇾 マレーシア時間",            tz: "Asia/Kuala_Lumpur" }
+];
+
+function getSelectedTimeZoneKey(){
+  return localStorage.getItem("preferredTimeZoneKey") || "auto";
+}
+function setSelectedTimeZoneKey(key){
+  localStorage.setItem("preferredTimeZoneKey", key);
+}
+
+// 実際に表示に使うタイムゾーン文字列を決定する
+function resolveViewerTimeZone(){
+  const key = getSelectedTimeZoneKey();
+  const opt = TIMEZONE_OPTIONS.find(o => o.key === key);
+  if(opt && opt.tz) return opt.tz;
+  // 自動検出：この端末（ブラウザ）のタイムゾーンを使う
+  try{
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Tokyo";
+  }catch(e){
+    return "Asia/Tokyo";
+  }
+}
+
+// スプシの日時文字列（日本時間として入力されている）を、
+// 正しい絶対時刻（Dateオブジェクト）に変換する
+function toAbsoluteDate(iso){
+  if(iso.length <= 10){
+    return new Date(`${iso}T00:00:00+09:00`);
+  }
+  return new Date(`${iso}:00+09:00`);
+}
+
+// 指定したタイムゾーンで日時をフォーマットする
+function formatInZone(iso, timeZone){
   const hasTime = iso.length > 10;
-  const d = new Date(iso);
-  const dow = ["日","月","火","水","木","金","土"][d.getDay()];
-  const base = `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日（${dow}）`;
-  if(!hasTime) return base;
-  const hh = String(d.getHours()).padStart(2,"0");
-  const mm = String(d.getMinutes()).padStart(2,"0");
-  return `${base} ${hh}:${mm}`;
+  const date = toAbsoluteDate(iso);
+  const parts = new Intl.DateTimeFormat("ja-JP", {
+    timeZone,
+    year: "numeric", month: "numeric", day: "numeric", weekday: "short",
+    hour: hasTime ? "2-digit" : undefined,
+    minute: hasTime ? "2-digit" : undefined,
+    hourCycle: "h23"
+  }).formatToParts(date);
+  const map = {};
+  parts.forEach(p => { map[p.type] = p.value; });
+  let base = `${map.year}年${map.month}月${map.day}日（${map.weekday}）`;
+  if(hasTime) base += ` ${map.hour}:${map.minute}`;
+  return base;
+}
+
+// 日付表示用フォーマット（日本時間で表示。例: 2026年8月5日（水） 20:00）
+function formatDate(iso){
+  return formatInZone(iso, "Asia/Tokyo");
 }
 
 function formatDateRange(start, end){
@@ -607,13 +704,20 @@ function formatDateRange(start, end){
   return `${formatDate(start)} 〜 ${formatDate(end)}`;
 }
 
-// 終了日時が「今」より前かどうかを判定
+// 閲覧者が選んだタイムゾーンでの日付レンジ表示
+function formatDateRangeInViewerZone(start, end){
+  const tz = resolveViewerTimeZone();
+  if(!end || end === start) return formatInZone(start, tz);
+  return `${formatInZone(start, tz)} 〜 ${formatInZone(end, tz)}`;
+}
+
+// 終了日時が「今」より前かどうかを判定（日本時間として正しく解釈）
 function isPastEvent(ev){
   const refIso = ev.end || ev.start;
-  let refDate = new Date(refIso);
+  let refDate = toAbsoluteDate(refIso);
   if(refIso.length <= 10){
     // 終了日のみ指定（時刻なし）の場合はその日の終わりまでを開催中とみなす
-    refDate.setHours(23, 59, 59, 999);
+    refDate = new Date(refDate.getTime() + (24*60*60*1000 - 1));
   }
   return refDate.getTime() < Date.now();
 }
@@ -673,6 +777,7 @@ function render(){
         }
         <div class="event-info">
           <div class="event-date">${formatDateRange(ev.start, ev.end)}${isPastEvent(ev) ? '<span class="past-badge">終了しました</span>' : ''}</div>
+          ${resolveViewerTimeZone() !== "Asia/Tokyo" ? `<div class="local-time"><span class="globe">🌏</span>${formatDateRangeInViewerZone(ev.start, ev.end)}（現地時間）</div>` : ""}
           <div class="event-title">${ev.title}</div>
           ${ev.place ? `<div class="event-place">${ev.place}</div>` : ""}
           ${ev.categories.length ? `
@@ -829,6 +934,7 @@ document.getElementById("searchBox").addEventListener("input", () => {
 });
 
 renderTabSwitch();
+renderTimezoneSelect();
 loadEvents();
 </script>
 </body>
