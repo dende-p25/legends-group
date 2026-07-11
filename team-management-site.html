@@ -903,13 +903,26 @@ function makeRowCard(r, year) {
   form.appendChild(btn);
   card.appendChild(form);
 
+  // 紹介者名(任意)。入力すると「参加者名（紹介者名）」の形でまとめて登録される
+  const referrerInput = document.createElement('input');
+  referrerInput.type = 'text';
+  referrerInput.placeholder = '紹介者名(いれば)';
+  referrerInput.style.marginTop = '6px';
+  referrerInput.style.width = '100%';
+  referrerInput.style.padding = '9px 12px';
+  referrerInput.style.borderRadius = '10px';
+  referrerInput.style.border = '1.5px solid var(--line)';
+  referrerInput.style.fontSize = '.85rem';
+  referrerInput.style.fontFamily = 'inherit';
+  card.appendChild(referrerInput);
+
   const msg = document.createElement('div');
   msg.className = 'msg';
   card.appendChild(msg);
 
-  btn.addEventListener('click', () => registerParticipant(r, input, btn, msg));
+  btn.addEventListener('click', () => registerParticipant(r, input, referrerInput, btn, msg));
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') registerParticipant(r, input, btn, msg);
+    if (e.key === 'Enter') registerParticipant(r, input, referrerInput, btn, msg);
   });
 
   // 編集(上書き)機能: 誤入力の訂正用。押すと現在の参加者欄の内容が入った編集フォームが開く
@@ -960,9 +973,11 @@ function makeField(label, value) {
   return span;
 }
 
-function registerParticipant(r, input, btn, msg) {
+function registerParticipant(r, input, referrerInput, btn, msg) {
   const name = input.value.trim();
   if (!name) return;
+  const referrer = referrerInput ? referrerInput.value.trim() : '';
+  const combinedName = referrer ? `${name}（${referrer}）` : name;
 
   btn.disabled = true;
   msg.textContent = '登録中...';
@@ -973,7 +988,8 @@ function registerParticipant(r, input, btn, msg) {
     category: r.category,
     section: r.section || '',
     datetime: r.datetime,
-    name: name
+    name: combinedName,
+    leader: r.leader || ''
   });
 
   fetch(`${CONFIG.GAS_URL}?${params.toString()}`)
@@ -984,6 +1000,7 @@ function registerParticipant(r, input, btn, msg) {
         msg.textContent = '登録しました';
         msg.className = 'msg ok';
         input.value = '';
+        if (referrerInput) referrerInput.value = '';
         setTimeout(loadData, 800);
       } else {
         msg.textContent = 'エラー: ' + (data.error || '不明なエラー');
