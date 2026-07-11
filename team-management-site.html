@@ -183,10 +183,23 @@ const CONFIG = {
     SHEET_NAME: 'LDS_Schedule（入力用）' // ← 実際のタブ名に合わせて調整してください
   },
 
+  // グループコンサル/ユーザーサポート会の「日程・担当者・グルコンリーダー・zoomURL」の入力元
+  // (フラット形式の新シート。参加者名はここには無く、正規化シート側の参加者データと
+  //  「担当者・講師 + 日程」をキーに紐付けて結合する)
+  SCHEDULE_SOURCE: {
+    SPREADSHEET_ID: '1qzOUSIEb-yfikltC9dLhSqKQPRBImZABpw4OFRbxXko',
+    SHEET_NAME: 'グルコン・ユーザーサポート会' // ← 実際のタブ名に合わせて調整してください
+  },
+
   // 表示する大区分の順番
   CATEGORY_ORDER: ['初回フォロー', 'グループコンサル', 'ユーザーサポート会', '視聴会', 'トレーニング']
 };
 /* ========================================= */
+
+// ゼロ幅スペースなど見た目上「空欄」だが実際には文字が入っているケースを除去
+function stripInvisible(str) {
+  return (str || '').replace(/[\u200B-\u200D\uFEFF]/g, '').trim();
+}
 
 const monthSelect = document.getElementById('monthSelect');
 const contentEl = document.getElementById('content');
@@ -233,10 +246,11 @@ function loadData() {
 
   const normalizedUrl = csvUrl(CONFIG.SPREADSHEET_ID, month.normalizedSheet);
   const trainingUrl = csvUrl(CONFIG.TRAINING_SOURCE.SPREADSHEET_ID, CONFIG.TRAINING_SOURCE.SHEET_NAME);
+  const scheduleUrl = csvUrl(CONFIG.SCHEDULE_SOURCE.SPREADSHEET_ID, CONFIG.SCHEDULE_SOURCE.SHEET_NAME);
 
-  Promise.all([parseCsv(normalizedUrl, false), parseCsv(trainingUrl, true)])
-    .then(([normData, trainingData]) => {
-      const rows = normData
+  Promise.all([parseCsv(normalizedUrl, false), parseCsv(trainingUrl, true), parseCsv(scheduleUrl, true)])
+    .then(([normData, trainingData, scheduleData]) => {
+      const normRows = normData
         .filter(r => r.length >= 8 && (r[2] || '').trim() !== '') // C列(日程)が空でない行のみ
         .map(r => ({
           category: (r[0] || '').trim(),
@@ -248,6 +262,38 @@ function loadData() {
           note: (r[6] || '').trim(),
           rawRow: (r[7] || '').trim()
         }));
+
+      // 参加者データを「担当者(セクション)+日程」をキーにルックアップできるようにする
+      const participantMap = {};
+      normRows.forEach(r => {
+        participantMap[`${r.section}|${r.datetime}`] = r;
+      });
+
+      // グループコンサル/ユーザーサポート会の日程・リーダー・zoomURLを、フラットシートから取得し
+      // 参加者データと結合する
+      const scheduleRows = scheduleData
+        .filter(r => (r['日程'] || '').trim() !== '')
+        .map(r => {
+          const category = (r['大区分'] || '').trim();
+          const section = (r['担当者・講師'] || '').trim();
+          const datetime = (r['日程'] || '').trim();
+          const leader = stripInvisible(r['グルコンリーダー']);
+          const zoomUrl = (r['zoomURL'] || '').trim();
+          const matched = participantMap[`${section}|${datetime}`];
+          return {
+            category,
+            section,
+            datetime,
+            leader,
+            zoomUrl,
+            participants: matched ? matched.participants : '',
+            referrer: matched ? matched.referrer : '',
+            note: matched ? matched.note : '',
+            rawRow: matched ? matched.rawRow : ''
+          };
+        })
+        // グループコンサルはグルコンリーダーが不在の枠を非表示にする
+        .filter(r => !(r.category === 'グループコンサル' && !r.leader));
 
       const trainingRows = trainingData
         .filter(r => r.title && r.start && matchesMonth(r.start, month.yearMonth))
@@ -262,7 +308,7 @@ function loadData() {
         }))
         .sort((a, b) => new Date(a.start) - new Date(b.start));
 
-      render(rows, trainingRows, month);
+      render(normRows, scheduleRows, trainingRows, month);
     })
     .catch(() => {
       contentEl.innerHTML = '<div class="empty-state">データの取得に失敗しました。シート名やIDを確認してください。</div>';
@@ -286,7 +332,7 @@ function formatTrainingDateTime(startStr, endStr) {
   return `${s}〜${pad(end.getHours())}:${pad(end.getMinutes())}`;
 }
 
-function render(rows, trainingRows, month) {
+function render(rows, scheduleRows, trainingRows, month) {
   contentEl.innerHTML = '';
   let totalCount = 0;
 
@@ -308,7 +354,10 @@ function render(rows, trainingRows, month) {
       return;
     }
 
-    const catRows = rows.filter(r => r.category === category);
+    // グループコンサル/ユーザーサポート会は、フラットな日程シート(scheduleRows)から描画。
+    // 初回フォローは引き続き正規化シート(rows)から描画。
+    const source = (category === '初回フォロー') ? rows : scheduleRows;
+    const catRows = source.filter(r => r.category === category);
     if (catRows.length === 0) return;
     totalCount += catRows.length;
 
@@ -447,11 +496,25 @@ function makeRowCard(r, month) {
   }
   card.appendChild(fields);
 
+  if (r.zoomUrl) {
+    const zoomEl = document.createElement('div');
+    zoomEl.className = 'field';
+    zoomEl.style.marginTop = '6px';
+    zoomEl.innerHTML = linkify(escapeHtml(r.zoomUrl));
+    card.appendChild(zoomEl);
+  }
+
   if (!r.participants) {
     const note = document.createElement('span');
     note.className = 'empty-note';
     note.textContent = '空き枠';
     card.appendChild(note);
+  }
+
+  // rawRow(参加者シート側の行番号)が無い場合は、まだ参加者データと紐づいていない枠なので
+  // 登録フォームは出さず表示のみにする
+  if (!r.rawRow) {
+    return card;
   }
 
   // 参加登録フォーム
