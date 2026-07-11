@@ -326,7 +326,6 @@
 </header>
 
 <main>
-  <div class="tab-switch" id="tabSwitch"></div>
   <div class="toolbar">
     <input type="text" id="searchBox" placeholder="タイトルで検索">
   </div>
@@ -366,8 +365,7 @@
 const SPREADSHEET_ID = "1qzOUSIEb-yfikltC9dLhSqKQPRBImZABpw4OFRbxXko";
 
 const TABS = [
-  { key: "event", label: "イベント",       sheetName: "イベント",       filters: ["region", "pref", "month"] },
-  { key: "training", label: "視聴会・トレーニング", sheetName: "視聴会・トレーニング", filters: [] }
+  { key: "event", label: "イベント",       sheetName: "イベント",       filters: ["region", "pref", "month"] }
   // タブを増やしたい場合はここに追記してください
   // { key: "xxx", label: "表示名", sheetName: "スプシ側のシート名", filters: [] }
 ];
@@ -388,6 +386,8 @@ const PREF_OPTIONS = [
   "宮崎県", "鹿児島県", "沖縄県", "海外"
 ];
 
+// タブ切り替え機能は廃止。常にTABS配列の最初のタブだけを使用します。
+// 今後TABSに項目を追加しても、タブ切り替えUIは表示されません。
 let currentTab = TABS[0].key;
 let EVENTS = [];
 let selectedCategory = "";
@@ -402,7 +402,7 @@ const eventsCache = {}; // シートごとの読み込み結果をキャッシ�
    ①のスプシに紐づけたGASを「ウェブアプリ」としてデプロイし、
    発行された .../exec のURLを下に貼ってください。
    ============================================================ */
-const GAS_ENDPOINT_URL = "https://script.google.com/macros/s/AKfycbyaTrNWpL_GnbnLcaICNY9sNVRL31uHknaaLoPfSd3TNbwZPe4prsBWjz3lIoAi7m6F/exec";
+const GAS_ENDPOINT_URL = "https://script.google.com/macros/s/AKfycbxpcdTwUBRPpOAC3aWs8RX1PVtzXujPOIlt7SkOR3pDZMrbJpxuOom2U0i6lQEZEI2L/exec";
 
 function getStoredName(){
   return localStorage.getItem("participantName") || "";
@@ -438,26 +438,7 @@ function buildSheetCsvUrl(sheetName){
    ここから下はロジック部分（通常は編集不要）
    ============================================================ */
 
-function renderTabSwitch(){
-  const wrap = document.getElementById("tabSwitch");
-  wrap.innerHTML = TABS.map(tab => `
-    <button class="${currentTab === tab.key ? 'active' : ''}" data-key="${tab.key}">${escapeHtml(tab.label)}</button>
-  `).join("");
 
-  wrap.querySelectorAll("button").forEach(btn => {
-    btn.addEventListener("click", () => {
-      if(btn.dataset.key === currentTab) return;
-      currentTab = btn.dataset.key;
-      selectedCategory = "";
-      selectedRegion = "";
-      selectedPref = "";
-      selectedMonth = "all";
-      document.getElementById("searchBox").value = "";
-      renderTabSwitch();
-      loadEvents();
-    });
-  });
-}
 
 function loadEvents(){
   const statusEl = document.getElementById("statusMsg");
@@ -695,6 +676,11 @@ function buildGcalUrl(ev){
 
 let openIndex = null;
 
+// 毎月16日以降は、終了済みイベントを一覧から非表示にする
+function shouldHidePastEvents(){
+  return new Date().getDate() >= 16;
+}
+
 function render(){
   const list = document.getElementById("eventList");
   const q = document.getElementById("searchBox").value.trim().toLowerCase();
@@ -704,7 +690,8 @@ function render(){
     .filter(({ev}) => !selectedCategory || ev.categories.includes(selectedCategory))
     .filter(({ev}) => !selectedRegion || ev.region === selectedRegion)
     .filter(({ev}) => !selectedPref || ev.pref === selectedPref)
-    .filter(({ev}) => matchesMonth(ev.start, selectedMonth));
+    .filter(({ev}) => matchesMonth(ev.start, selectedMonth))
+    .filter(({ev}) => !(shouldHidePastEvents() && isPastEvent(ev)));
 
   if(filtered.length === 0){
     list.innerHTML = `<div class="list-empty">該当する予定がありません</div>`;
@@ -876,7 +863,6 @@ document.getElementById("searchBox").addEventListener("input", () => {
   render();
 });
 
-renderTabSwitch();
 loadEvents();
 </script>
 </body>
