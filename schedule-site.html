@@ -90,30 +90,6 @@
   }
   .toolbar input:focus{outline:none;border-color:var(--accent);}
 
-  /* ── タイムゾーン選択 ── */
-  .timezone-select{
-    margin-bottom:14px;
-  }
-  .timezone-select select{
-    width:100%;
-    padding:10px 12px;
-    border:1.5px solid var(--line);
-    border-radius:10px;
-    font-size:.82rem;
-    font-family:inherit;
-    background:#fff;
-    color:var(--ink);
-  }
-  .timezone-select select:focus{outline:none;border-color:var(--accent);}
-
-  /* ── 現地時間の表示 ── */
-  .local-time{
-    font-size:.76rem;
-    color:var(--ink-soft);
-    margin-top:3px;
-  }
-  .local-time .globe{ margin-right:2px; }
-
   /* ── 追加フィルター（地域・県・月） ── */
   .extra-filters{
     display:flex;
@@ -220,6 +196,11 @@
     font-weight:700;
     letter-spacing:.02em;
     margin-bottom:4px;
+  }
+  .local-time{
+    font-size:.78rem;
+    color:var(--ink-soft);
+    margin-bottom:2px;
   }
   .event-title{
     font-size:1.02rem;
@@ -346,7 +327,6 @@
 
 <main>
   <div class="tab-switch" id="tabSwitch"></div>
-  <div class="timezone-select" id="timezoneSelect"></div>
   <div class="toolbar">
     <input type="text" id="searchBox" placeholder="タイトルで検索">
   </div>
@@ -476,23 +456,6 @@ function renderTabSwitch(){
       renderTabSwitch();
       loadEvents();
     });
-  });
-}
-
-// タイムゾーン選択のプルダウンを描画
-function renderTimezoneSelect(){
-  const wrap = document.getElementById("timezoneSelect");
-  const currentKey = getSelectedTimeZoneKey();
-
-  wrap.innerHTML = `
-    <select id="timezonePicker">
-      ${TIMEZONE_OPTIONS.map(opt => `<option value="${opt.key}" ${opt.key === currentKey ? "selected" : ""}>${opt.label}</option>`).join("")}
-    </select>
-  `;
-
-  document.getElementById("timezonePicker").addEventListener("change", (e) => {
-    setSelectedTimeZoneKey(e.target.value);
-    render();
   });
 }
 
@@ -633,39 +596,10 @@ function renderCategoryFilter(){
 }
 
 /* ============================================================
-   海外時間表示について
-
    スプシの日時（例：2026-07-25T21:00）は「日本時間」として
    入力されている前提で扱います。表示側では、これを正しく
-   日本時間の絶対時刻に変換したうえで、閲覧者が選んだ
-   タイムゾーンに変換して表示します。
+   日本時間の絶対時刻として解釈したうえでフォーマットします。
    ============================================================ */
-const TIMEZONE_OPTIONS = [
-  { key: "auto", label: "🌏 自動検出（この端末の設定）", tz: null },
-  { key: "jst",  label: "🇯🇵 日本時間 (JST)",           tz: "Asia/Tokyo" },
-  { key: "svn",  label: "🇸🇮 スロベニア時間",            tz: "Europe/Ljubljana" },
-  { key: "mys",  label: "🇲🇾 マレーシア時間",            tz: "Asia/Kuala_Lumpur" }
-];
-
-function getSelectedTimeZoneKey(){
-  return localStorage.getItem("preferredTimeZoneKey") || "auto";
-}
-function setSelectedTimeZoneKey(key){
-  localStorage.setItem("preferredTimeZoneKey", key);
-}
-
-// 実際に表示に使うタイムゾーン文字列を決定する
-function resolveViewerTimeZone(){
-  const key = getSelectedTimeZoneKey();
-  const opt = TIMEZONE_OPTIONS.find(o => o.key === key);
-  if(opt && opt.tz) return opt.tz;
-  // 自動検出：この端末（ブラウザ）のタイムゾーンを使う
-  try{
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Tokyo";
-  }catch(e){
-    return "Asia/Tokyo";
-  }
-}
 
 // スプシの日時文字列（日本時間として入力されている）を、
 // 正しい絶対時刻（Dateオブジェクト）に変換する
@@ -704,9 +638,18 @@ function formatDateRange(start, end){
   return `${formatDate(start)} 〜 ${formatDate(end)}`;
 }
 
-// 閲覧者が選んだタイムゾーンでの日付レンジ表示
-function formatDateRangeInViewerZone(start, end){
-  const tz = resolveViewerTimeZone();
+// この端末（ブラウザ）が認識しているタイムゾーンを自動検出
+function getDeviceTimeZone(){
+  try{
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Tokyo";
+  }catch(e){
+    return "Asia/Tokyo";
+  }
+}
+
+// 端末のタイムゾーンでの日付レンジ表示
+function formatDateRangeInDeviceZone(start, end){
+  const tz = getDeviceTimeZone();
   if(!end || end === start) return formatInZone(start, tz);
   return `${formatInZone(start, tz)} 〜 ${formatInZone(end, tz)}`;
 }
@@ -777,7 +720,7 @@ function render(){
         }
         <div class="event-info">
           <div class="event-date">${formatDateRange(ev.start, ev.end)}${isPastEvent(ev) ? '<span class="past-badge">終了しました</span>' : ''}</div>
-          ${resolveViewerTimeZone() !== "Asia/Tokyo" ? `<div class="local-time"><span class="globe">🌏</span>${formatDateRangeInViewerZone(ev.start, ev.end)}（現地時間）</div>` : ""}
+          ${getDeviceTimeZone() !== "Asia/Tokyo" ? `<div class="local-time">（${formatDateRangeInDeviceZone(ev.start, ev.end)}）</div>` : ""}
           <div class="event-title">${ev.title}</div>
           ${ev.place ? `<div class="event-place">${ev.place}</div>` : ""}
           ${ev.categories.length ? `
@@ -934,7 +877,6 @@ document.getElementById("searchBox").addEventListener("input", () => {
 });
 
 renderTabSwitch();
-renderTimezoneSelect();
 loadEvents();
 </script>
 </body>
