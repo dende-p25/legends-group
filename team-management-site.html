@@ -422,10 +422,7 @@ const CONFIG = {
   SCHEDULE_SOURCE: {
     SPREADSHEET_ID: '1qzOUSIEb-yfikltC9dLhSqKQPRBImZABpw4OFRbxXko',
     SHEET_NAME: 'グルコン・ユーザーサポート会' // 実際のタブ名に合わせて調整してください
-  },
-
-  // 表示する大区分の順番(予定管理タブ内)
-  CATEGORY_ORDER: ['初回フォロー', 'グループコンサル', 'ユーザーサポート会']
+  }
 };
 /* ========================================= */
 
@@ -471,10 +468,19 @@ function parseCsv(url, header) {
    タブ切り替え(予定管理 / 視聴会・トレーニング)
    ============================================================ */
 const VIEW_TABS = [
-  { key: 'schedule', label: '予定管理' },
+  { key: 'first_follow', label: '初回フォロー' },
+  { key: 'group_consul', label: 'グループコンサル' },
+  { key: 'user_support', label: 'ユーザーサポート会' },
   { key: 'training', label: '視聴会・トレーニング' }
 ];
-let currentView = 'schedule';
+let currentView = 'first_follow';
+
+// タブのkeyと、実際のデータ上の大区分名の対応
+const CATEGORY_BY_VIEW = {
+  first_follow: '初回フォロー',
+  group_consul: 'グループコンサル',
+  user_support: 'ユーザーサポート会'
+};
 
 function renderTabSwitch() {
   const wrap = document.getElementById('tabSwitch');
@@ -487,10 +493,23 @@ function renderTabSwitch() {
       if (btn.dataset.key === currentView) return;
       currentView = btn.dataset.key;
       renderTabSwitch();
-      document.getElementById('scheduleView').style.display = (currentView === 'schedule') ? '' : 'none';
-      document.getElementById('trainingView').style.display = (currentView === 'training') ? '' : 'none';
-      if (currentView === 'training' && !trainingLoaded) {
-        loadTrainingEvents();
+
+      const isTraining = currentView === 'training';
+      document.getElementById('scheduleView').style.display = isTraining ? 'none' : '';
+      document.getElementById('trainingView').style.display = isTraining ? '' : 'none';
+
+      if (isTraining) {
+        if (!trainingLoaded) loadTrainingEvents();
+        return;
+      }
+
+      // 予定管理系タブ(初回フォロー/グループコンサル/ユーザーサポート会)を切り替えたとき、
+      // 既にデータ取得済みなら再取得せず再描画するだけにする
+      scheduleSelectedSection = '';
+      if (cachedMonth) {
+        render(cachedFirstFollowRows, cachedScheduleRows, cachedMonth);
+      } else {
+        loadData();
       }
     });
   });
@@ -556,11 +575,18 @@ function loadData() {
         };
       });
 
+      // ユーザーサポート会の講師名。シート側の「大区分」列の入力もれ・ゆれに関わらず、
+      // この名前が担当者・講師に入っていれば強制的にユーザーサポート会として扱う
+      const USER_SUPPORT_SECTIONS = ['のがみんさん', 'みきさん'];
+
       const scheduleRows = scheduleData
         .filter(r => (r['日程'] || '').trim() !== '' && monthFromJpDatetime(r['日程']) === month.month)
         .map(r => {
-          const category = (r['大区分'] || '').trim();
           const section = (r['担当者・講師'] || '').trim();
+          let category = (r['大区分'] || '').trim();
+          if (USER_SUPPORT_SECTIONS.includes(section)) {
+            category = 'ユーザーサポート会';
+          }
           const datetime = (r['日程'] || '').trim();
           const leader = stripInvisible(r['グルコンリーダー']);
           const zoomUrl = (r['zoomURL'] || '').trim();
@@ -606,102 +632,96 @@ function loadData() {
 
 function render(firstFollowRows, scheduleRows, month) {
   contentEl.innerHTML = '';
-  let totalCount = 0;
 
-  CONFIG.CATEGORY_ORDER.forEach(category => {
-    const source = (category === '初回フォロー') ? firstFollowRows : scheduleRows;
-    const catRows = source.filter(r => r.category === category);
-    if (catRows.length === 0) return;
-    totalCount += catRows.length;
+  const category = CATEGORY_BY_VIEW[currentView];
+  if (!category) return;
 
-    const block = document.createElement('div');
-    block.className = 'block';
+  const source = (category === '初回フォロー') ? firstFollowRows : scheduleRows;
+  const catRows = source.filter(r => r.category === category);
 
-    const blockTitle = document.createElement('div');
-    blockTitle.className = 'block-title';
-    blockTitle.textContent = category;
-    block.appendChild(blockTitle);
-
-    if (category === '初回フォロー') {
-      catRows.forEach(r => block.appendChild(makeRowCard(r)));
-    } else if (category === 'グループコンサル') {
-      // 担当者・講師のタグ絞り込みチップ(すべて、を含む)
-      const allSections = [];
-      catRows.forEach(r => {
-        if (!allSections.includes(r.section)) allSections.push(r.section);
-      });
-
-      const filterWrap = document.createElement('div');
-      filterWrap.className = 'category-filter';
-      const chipDefs = ['', ...allSections];
-      chipDefs.forEach(sec => {
-        const chip = document.createElement('button');
-        chip.className = 'category-chip' + (scheduleSelectedSection === sec ? ' active' : '');
-        chip.textContent = sec === '' ? 'すべて' : sec;
-        chip.addEventListener('click', () => {
-          scheduleSelectedSection = sec;
-          render(cachedFirstFollowRows, cachedScheduleRows, cachedMonth);
-        });
-        filterWrap.appendChild(chip);
-      });
-      block.appendChild(filterWrap);
-
-      const visibleRows = scheduleSelectedSection
-        ? catRows.filter(r => r.section === scheduleSelectedSection)
-        : catRows;
-
-      const sectionOrder = [];
-      const grouped = {};
-      visibleRows.forEach(r => {
-        if (!grouped[r.section]) {
-          grouped[r.section] = [];
-          sectionOrder.push(r.section);
-        }
-        grouped[r.section].push(r);
-      });
-
-      sectionOrder.forEach(section => {
-        const sTitle = document.createElement('div');
-        sTitle.className = 'section-title';
-        sTitle.textContent = section;
-        block.appendChild(sTitle);
-        grouped[section].forEach(r => block.appendChild(makeRowCard(r)));
-      });
-    } else {
-      const sectionOrder = [];
-      const grouped = {};
-      catRows.forEach(r => {
-        if (!grouped[r.section]) {
-          grouped[r.section] = [];
-          sectionOrder.push(r.section);
-        }
-        grouped[r.section].push(r);
-      });
-
-      const skipSectionTitle = sectionOrder.length === 1 && sectionOrder[0] === category;
-
-      sectionOrder.forEach(section => {
-        if (!skipSectionTitle) {
-          const sTitle = document.createElement('div');
-          sTitle.className = 'section-title';
-          sTitle.textContent = section;
-          block.appendChild(sTitle);
-        }
-        grouped[section].forEach(r => block.appendChild(makeRowCard(r)));
-      });
-    }
-
-    contentEl.appendChild(block);
-  });
-
-  if (totalCount === 0) {
+  if (catRows.length === 0) {
     contentEl.innerHTML = '<div class="empty-state">この月のデータがありません。</div>';
     statusEl.textContent = '';
     return;
   }
 
-  statusEl.textContent = `${totalCount}件を表示中`;
+  const block = document.createElement('div');
+  block.className = 'block';
+
+  if (category === '初回フォロー') {
+    catRows.forEach(r => block.appendChild(makeRowCard(r)));
+  } else if (category === 'グループコンサル') {
+    // 担当者・講師のタグ絞り込みチップ(すべて、を含む)
+    const allSections = [];
+    catRows.forEach(r => {
+      if (!allSections.includes(r.section)) allSections.push(r.section);
+    });
+
+    const filterWrap = document.createElement('div');
+    filterWrap.className = 'category-filter';
+    const chipDefs = ['', ...allSections];
+    chipDefs.forEach(sec => {
+      const chip = document.createElement('button');
+      chip.className = 'category-chip' + (scheduleSelectedSection === sec ? ' active' : '');
+      chip.textContent = sec === '' ? 'すべて' : sec;
+      chip.addEventListener('click', () => {
+        scheduleSelectedSection = sec;
+        render(cachedFirstFollowRows, cachedScheduleRows, cachedMonth);
+      });
+      filterWrap.appendChild(chip);
+    });
+    block.appendChild(filterWrap);
+
+    const visibleRows = scheduleSelectedSection
+      ? catRows.filter(r => r.section === scheduleSelectedSection)
+      : catRows;
+
+    const sectionOrder = [];
+    const grouped = {};
+    visibleRows.forEach(r => {
+      if (!grouped[r.section]) {
+        grouped[r.section] = [];
+        sectionOrder.push(r.section);
+      }
+      grouped[r.section].push(r);
+    });
+
+    sectionOrder.forEach(section => {
+      const sTitle = document.createElement('div');
+      sTitle.className = 'section-title';
+      sTitle.textContent = section;
+      block.appendChild(sTitle);
+      grouped[section].forEach(r => block.appendChild(makeRowCard(r)));
+    });
+  } else {
+    const sectionOrder = [];
+    const grouped = {};
+    catRows.forEach(r => {
+      if (!grouped[r.section]) {
+        grouped[r.section] = [];
+        sectionOrder.push(r.section);
+      }
+      grouped[r.section].push(r);
+    });
+
+    const skipSectionTitle = sectionOrder.length === 1 && sectionOrder[0] === category;
+
+    sectionOrder.forEach(section => {
+      if (!skipSectionTitle) {
+        const sTitle = document.createElement('div');
+        sTitle.className = 'section-title';
+        sTitle.textContent = section;
+        block.appendChild(sTitle);
+      }
+      grouped[section].forEach(r => block.appendChild(makeRowCard(r)));
+    });
+  }
+
+  contentEl.appendChild(block);
+  statusEl.textContent = `${catRows.length}件を表示中`;
 }
+
+let scheduleCardIdCounter = 0;
 
 function makeRowCard(r) {
   const card = document.createElement('div');
@@ -730,16 +750,27 @@ function makeRowCard(r) {
   card.appendChild(fields);
 
   if (r.zoomUrl) {
+    const zoomId = `zoom-${scheduleCardIdCounter++}`;
+    const zoomToggle = document.createElement('button');
+    zoomToggle.className = 'btn btn-toggle';
+    zoomToggle.style.marginTop = '8px';
+    zoomToggle.textContent = 'Zoomはこちら ▼';
+    zoomToggle.addEventListener('click', () => {
+      const el = document.getElementById(zoomId);
+      const isOpen = el.style.display === 'block';
+      el.style.display = isOpen ? 'none' : 'block';
+      zoomToggle.textContent = isOpen ? 'Zoomはこちら ▼' : 'Zoomはこちら ▲';
+    });
+    card.appendChild(zoomToggle);
+
     const zoomEl = document.createElement('div');
+    zoomEl.id = zoomId;
     zoomEl.className = 'field';
     zoomEl.style.marginTop = '6px';
     zoomEl.style.whiteSpace = 'pre-wrap';
+    zoomEl.style.display = 'none';
     zoomEl.innerHTML = linkify(escapeHtml(r.zoomUrl));
     card.appendChild(zoomEl);
-  }
-
-  if (!r.rawRow) {
-    return card;
   }
 
   const form = document.createElement('div');
@@ -783,7 +814,8 @@ function registerParticipant(r, input, btn, msg) {
   const params = new URLSearchParams({
     action: 'register',
     category: r.category,
-    row: r.rawRow,
+    section: r.section || '',
+    datetime: r.datetime,
     name: name
   });
 
