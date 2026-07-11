@@ -405,7 +405,7 @@ const CONFIG = {
   },
 
   // GAS(参加登録用)のウェブアプリURL。register/update/join/cancelの全アクションで共通。
-  GAS_URL: 'https://script.google.com/macros/s/AKfycbzf6htFAvB_nsBlH3dvsLuT6Gum2IjLmMurIgpkt-WNzLReJdW2Oxc4nJp5VnvJA_kW/exec',
+  GAS_URL: 'https://script.google.com/macros/s/AKfycbzpTJN8jPF9e9VNH_RkIB2DdNQd009DGdLDR5ZseePrrTJ-37MRQsIyXUnIPjM3TyU/exec',
 
   // 表示する月(日程文字列 "7/3(月)..." の先頭月数字で絞り込む)
   MONTHS: [
@@ -892,29 +892,26 @@ function makeRowCard(r, year) {
     card.appendChild(zoomEl);
   }
 
-  const form = document.createElement('div');
-  form.className = 'register';
+  const nameRow = document.createElement('div');
+  nameRow.className = 'register';
   const input = document.createElement('input');
   input.type = 'text';
   input.placeholder = '参加者名を入力';
-  const btn = document.createElement('button');
-  btn.textContent = '登録';
-  form.appendChild(input);
-  form.appendChild(btn);
-  card.appendChild(form);
+  nameRow.appendChild(input);
+  card.appendChild(nameRow);
 
   // 紹介者名(任意)。入力すると「参加者名（紹介者名）」の形でまとめて登録される
+  const referrerRow = document.createElement('div');
+  referrerRow.className = 'register';
+  referrerRow.style.marginTop = '6px';
   const referrerInput = document.createElement('input');
   referrerInput.type = 'text';
   referrerInput.placeholder = '紹介者名';
-  referrerInput.style.marginTop = '6px';
-  referrerInput.style.width = '100%';
-  referrerInput.style.padding = '9px 12px';
-  referrerInput.style.borderRadius = '10px';
-  referrerInput.style.border = '1.5px solid var(--line)';
-  referrerInput.style.fontSize = '.85rem';
-  referrerInput.style.fontFamily = 'inherit';
-  card.appendChild(referrerInput);
+  const btn = document.createElement('button');
+  btn.textContent = '登録';
+  referrerRow.appendChild(referrerInput);
+  referrerRow.appendChild(btn);
+  card.appendChild(referrerRow);
 
   const msg = document.createElement('div');
   msg.className = 'msg';
@@ -922,6 +919,12 @@ function makeRowCard(r, year) {
 
   btn.addEventListener('click', () => registerParticipant(r, input, referrerInput, btn, msg));
   input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      referrerInput.focus(); // 参加者名でEnterを押しても送信せず、紹介者名欄にフォーカスを移すだけにする
+    }
+  });
+  referrerInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') registerParticipant(r, input, referrerInput, btn, msg);
   });
 
