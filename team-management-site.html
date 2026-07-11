@@ -405,7 +405,7 @@ const CONFIG = {
   },
 
   // GAS(参加登録用)のウェブアプリURL。register/join/cancelの全アクションで共通。
-  GAS_URL: 'https://script.google.com/macros/s/AKfycbz907tSgpTY15_W43Uo_s0meEukgrsAfxD7j4LnDzv1Q3GVH-K4OKgEcuhacHmWi5Hs/exec',
+  GAS_URL: 'https://script.google.com/macros/s/AKfycbxpcdTwUBRPpOAC3aWs8RX1PVtzXujPOIlt7SkOR3pDZMrbJpxuOom2U0i6lQEZEI2L/exec',
 
   // 表示する月(日程文字列 "7/3(月)..." の先頭月数字で絞り込む)
   MONTHS: [
@@ -433,9 +433,10 @@ const CONFIG = {
 };
 /* ========================================= */
 
-// 参加者データの該当行を直接開くURL(該当タブ・該当行にジャンプ)
+// 参加者データの該当行を直接開くURL(行番号が分かる場合はその行、無ければタブ全体を開く)
 function buildSheetRowUrl(gid, row) {
-  return `https://docs.google.com/spreadsheets/d/${CONFIG.PARTICIPANTS_SOURCE.SPREADSHEET_ID}/edit#gid=${gid}&range=A${row}`;
+  const base = `https://docs.google.com/spreadsheets/d/${CONFIG.PARTICIPANTS_SOURCE.SPREADSHEET_ID}/edit#gid=${gid}`;
+  return row ? `${base}&range=A${row}` : base;
 }
 
 function stripInvisible(str) {
@@ -471,6 +472,39 @@ function isScheduleRowPast(datetimeStr, year) {
   const end = parseJpScheduleEnd(datetimeStr, year);
   if (!end) return false;
   return end.getTime() < Date.now();
+}
+
+// "7/3(月)12:30-14:30" のような日程文字列から開始・終了のDateを両方割り出す
+function parseJpScheduleRange(str, year) {
+  const md = (str || '').match(/^(\d{1,2})\/(\d{1,2})/);
+  if (!md) return null;
+  const month = parseInt(md[1], 10);
+  const day = parseInt(md[2], 10);
+
+  const times = [...(str || '').matchAll(/(\d{1,2}):(\d{2})/g)];
+  if (times.length === 0) return null;
+
+  const startT = times[0];
+  const endT = times[times.length - 1];
+  const start = new Date(year, month - 1, day, parseInt(startT[1], 10), parseInt(startT[2], 10));
+  const end = new Date(year, month - 1, day, parseInt(endT[1], 10), parseInt(endT[2], 10));
+  return { start, end };
+}
+
+// 予定管理タブ(初回フォロー/グループコンサル/ユーザーサポート会)用のGoogleカレンダー追加リンク
+function buildScheduleGcalUrl(r, year) {
+  const range = parseJpScheduleRange(r.datetime, year);
+  if (!range) return null;
+  const pad = n => String(n).padStart(2, '0');
+  const stamp = d => `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}00`;
+  const title = [r.category, r.section].filter(Boolean).join(' ');
+  const params = new URLSearchParams({
+    action: 'TEMPLATE',
+    text: title,
+    dates: `${stamp(range.start)}/${stamp(range.end)}`,
+    ctz: 'Asia/Tokyo'
+  });
+  return `https://www.google.com/calendar/render?${params.toString()}`;
 }
 
 function escapeHtml(str) {
@@ -695,7 +729,7 @@ function render(firstFollowRows, scheduleRows, month) {
   block.className = 'block';
 
   if (category === '初回フォロー') {
-    catRows.forEach(r => block.appendChild(makeRowCard(r)));
+    catRows.forEach(r => block.appendChild(makeRowCard(r, month.year)));
   } else if (category === 'グループコンサル') {
     // 担当者・講師のタグ絞り込みチップ(すべて、を含む)
     const allSections = [];
@@ -737,7 +771,7 @@ function render(firstFollowRows, scheduleRows, month) {
       sTitle.className = 'section-title';
       sTitle.textContent = section;
       block.appendChild(sTitle);
-      grouped[section].forEach(r => block.appendChild(makeRowCard(r)));
+      grouped[section].forEach(r => block.appendChild(makeRowCard(r, month.year)));
     });
   } else {
     const sectionOrder = [];
@@ -759,7 +793,7 @@ function render(firstFollowRows, scheduleRows, month) {
         sTitle.textContent = section;
         block.appendChild(sTitle);
       }
-      grouped[section].forEach(r => block.appendChild(makeRowCard(r)));
+      grouped[section].forEach(r => block.appendChild(makeRowCard(r, month.year)));
     });
   }
 
@@ -769,7 +803,7 @@ function render(firstFollowRows, scheduleRows, month) {
 
 let scheduleCardIdCounter = 0;
 
-function makeRowCard(r) {
+function makeRowCard(r, year) {
   const card = document.createElement('div');
   card.className = 'row-card';
 
@@ -795,58 +829,68 @@ function makeRowCard(r) {
   }
   card.appendChild(fields);
 
-  if (r.zoomUrl || r.applyUrl || r.rawRow) {
-    const actionsWrap = document.createElement('div');
-    actionsWrap.className = 'event-actions';
-    actionsWrap.style.marginTop = '8px';
+  const actionsWrap = document.createElement('div');
+  actionsWrap.className = 'event-actions';
+  actionsWrap.style.marginTop = '8px';
 
-    let zoomId = null;
-    if (r.zoomUrl) {
-      zoomId = `zoom-${scheduleCardIdCounter++}`;
-      const zoomToggle = document.createElement('button');
-      zoomToggle.className = 'btn btn-toggle';
-      zoomToggle.textContent = 'Zoomはこちら ▼';
-      zoomToggle.addEventListener('click', () => {
-        const el = document.getElementById(zoomId);
-        const isOpen = el.style.display === 'block';
-        el.style.display = isOpen ? 'none' : 'block';
-        zoomToggle.textContent = isOpen ? 'Zoomはこちら ▼' : 'Zoomはこちら ▲';
-      });
-      actionsWrap.appendChild(zoomToggle);
-    }
+  const gcalUrl = buildScheduleGcalUrl(r, year);
+  if (gcalUrl) {
+    const gcalLink = document.createElement('a');
+    gcalLink.className = 'btn btn-gcal';
+    gcalLink.href = gcalUrl;
+    gcalLink.target = '_blank';
+    gcalLink.rel = 'noopener';
+    gcalLink.textContent = '📅 Googleカレンダーに追加';
+    actionsWrap.appendChild(gcalLink);
+  }
 
-    if (r.applyUrl) {
-      const applyLink = document.createElement('a');
-      applyLink.className = 'btn btn-sheet';
-      applyLink.href = r.applyUrl;
-      applyLink.target = '_blank';
-      applyLink.rel = 'noopener';
-      applyLink.textContent = '📝 申込をする';
-      actionsWrap.appendChild(applyLink);
-    }
+  let zoomId = null;
+  if (r.zoomUrl) {
+    zoomId = `zoom-${scheduleCardIdCounter++}`;
+    const zoomToggle = document.createElement('button');
+    zoomToggle.className = 'btn btn-toggle';
+    zoomToggle.textContent = 'Zoomはこちら ▼';
+    zoomToggle.addEventListener('click', () => {
+      const el = document.getElementById(zoomId);
+      const isOpen = el.style.display === 'block';
+      el.style.display = isOpen ? 'none' : 'block';
+      zoomToggle.textContent = isOpen ? 'Zoomはこちら ▼' : 'Zoomはこちら ▲';
+    });
+    actionsWrap.appendChild(zoomToggle);
+  }
 
-    if (r.rawRow && r.tabGid) {
-      const checkLink = document.createElement('a');
-      checkLink.className = 'btn btn-sheet';
-      checkLink.href = buildSheetRowUrl(r.tabGid, r.rawRow);
-      checkLink.target = '_blank';
-      checkLink.rel = 'noopener';
-      checkLink.textContent = '🔍 入力確認する';
-      actionsWrap.appendChild(checkLink);
-    }
+  if (r.applyUrl) {
+    const applyLink = document.createElement('a');
+    applyLink.className = 'btn btn-sheet';
+    applyLink.href = r.applyUrl;
+    applyLink.target = '_blank';
+    applyLink.rel = 'noopener';
+    applyLink.textContent = '📝 申込をする';
+    actionsWrap.appendChild(applyLink);
+  }
 
-    card.appendChild(actionsWrap);
+  // 参加者の有無に関わらず、常に確認リンクを表示する(一致行があればその行、無ければタブ全体を開く)
+  if (r.tabGid) {
+    const checkLink = document.createElement('a');
+    checkLink.className = 'btn btn-sheet';
+    checkLink.href = buildSheetRowUrl(r.tabGid, r.rawRow);
+    checkLink.target = '_blank';
+    checkLink.rel = 'noopener';
+    checkLink.textContent = '🔍 入力確認する';
+    actionsWrap.appendChild(checkLink);
+  }
 
-    if (r.zoomUrl) {
-      const zoomEl = document.createElement('div');
-      zoomEl.id = zoomId;
-      zoomEl.className = 'field';
-      zoomEl.style.marginTop = '6px';
-      zoomEl.style.whiteSpace = 'pre-wrap';
-      zoomEl.style.display = 'none';
-      zoomEl.innerHTML = linkify(escapeHtml(r.zoomUrl));
-      card.appendChild(zoomEl);
-    }
+  card.appendChild(actionsWrap);
+
+  if (r.zoomUrl) {
+    const zoomEl = document.createElement('div');
+    zoomEl.id = zoomId;
+    zoomEl.className = 'field';
+    zoomEl.style.marginTop = '6px';
+    zoomEl.style.whiteSpace = 'pre-wrap';
+    zoomEl.style.display = 'none';
+    zoomEl.innerHTML = linkify(escapeHtml(r.zoomUrl));
+    card.appendChild(zoomEl);
   }
 
   const form = document.createElement('div');
@@ -868,6 +912,44 @@ function makeRowCard(r) {
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') registerParticipant(r, input, btn, msg);
   });
+
+  // 編集(上書き)機能: 誤入力の訂正用。押すと現在の参加者欄の内容が入った編集フォームが開く
+  const editToggle = document.createElement('button');
+  editToggle.className = 'btn btn-toggle';
+  editToggle.style.marginTop = '8px';
+  editToggle.textContent = '✏️ 編集する';
+  const editWrap = document.createElement('div');
+  editWrap.style.display = 'none';
+  editWrap.style.marginTop = '8px';
+
+  const editForm = document.createElement('div');
+  editForm.className = 'register';
+  const editInput = document.createElement('input');
+  editInput.type = 'text';
+  editInput.placeholder = '参加者欄の内容(上書きされます)';
+  editInput.value = r.participants || '';
+  const editBtn = document.createElement('button');
+  editBtn.textContent = '更新';
+  editForm.appendChild(editInput);
+  editForm.appendChild(editBtn);
+  editWrap.appendChild(editForm);
+
+  const editMsg = document.createElement('div');
+  editMsg.className = 'msg';
+  editWrap.appendChild(editMsg);
+
+  editToggle.addEventListener('click', () => {
+    const isOpen = editWrap.style.display === 'block';
+    editWrap.style.display = isOpen ? 'none' : 'block';
+    editToggle.textContent = isOpen ? '✏️ 編集する' : '✏️ 編集を閉じる';
+  });
+  editBtn.addEventListener('click', () => updateParticipants(r, editInput, editBtn, editMsg));
+  editInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') updateParticipants(r, editInput, editBtn, editMsg);
+  });
+
+  card.appendChild(editToggle);
+  card.appendChild(editWrap);
 
   return card;
 }
@@ -903,6 +985,42 @@ function registerParticipant(r, input, btn, msg) {
         msg.textContent = '登録しました';
         msg.className = 'msg ok';
         input.value = '';
+        setTimeout(loadData, 800);
+      } else {
+        msg.textContent = 'エラー: ' + (data.error || '不明なエラー');
+        msg.className = 'msg err';
+      }
+    })
+    .catch(() => {
+      btn.disabled = false;
+      msg.textContent = '通信エラーが発生しました';
+      msg.className = 'msg err';
+    });
+}
+
+// 参加者欄の内容を丸ごと上書きする(誤入力の訂正用)
+function updateParticipants(r, input, btn, msg) {
+  const value = input.value.trim();
+
+  btn.disabled = true;
+  msg.textContent = '更新中...';
+  msg.className = 'msg';
+
+  const params = new URLSearchParams({
+    action: 'update',
+    category: r.category,
+    section: r.section || '',
+    datetime: r.datetime,
+    name: value
+  });
+
+  fetch(`${CONFIG.GAS_URL}?${params.toString()}`)
+    .then(res => res.json())
+    .then(data => {
+      btn.disabled = false;
+      if (data.success) {
+        msg.textContent = '更新しました';
+        msg.className = 'msg ok';
         setTimeout(loadData, 800);
       } else {
         msg.textContent = 'エラー: ' + (data.error || '不明なエラー');
