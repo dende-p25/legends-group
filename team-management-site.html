@@ -404,8 +404,8 @@ const CONFIG = {
     FIRST_FOLLOW_TAB_GID: '1676811778'
   },
 
-  // GAS(参加登録用)のウェブアプリURL。register/join/cancelの全アクションで共通。
-  GAS_URL: 'https://script.google.com/macros/s/AKfycbxpcdTwUBRPpOAC3aWs8RX1PVtzXujPOIlt7SkOR3pDZMrbJpxuOom2U0i6lQEZEI2L/exec',
+  // GAS(参加登録用)のウェブアプリURL。register/update/join/cancelの全アクションで共通。
+  GAS_URL: 'https://script.google.com/macros/s/AKfycbzf6htFAvB_nsBlH3dvsLuT6Gum2IjLmMurIgpkt-WNzLReJdW2Oxc4nJp5VnvJA_kW/exec',
 
   // 表示する月(日程文字列 "7/3(月)..." の先頭月数字で絞り込む)
   MONTHS: [
@@ -767,10 +767,6 @@ function render(firstFollowRows, scheduleRows, month) {
     });
 
     sectionOrder.forEach(section => {
-      const sTitle = document.createElement('div');
-      sTitle.className = 'section-title';
-      sTitle.textContent = section;
-      block.appendChild(sTitle);
       grouped[section].forEach(r => block.appendChild(makeRowCard(r, month.year)));
     });
   } else {
@@ -811,18 +807,21 @@ function makeRowCard(r, year) {
   top.className = 'row-top';
   const dt = document.createElement('div');
   dt.className = 'datetime';
-  dt.textContent = r.datetime;
+  // グループコンサルは「担当者・講師　日程」を1行にまとめて表示する
+  dt.textContent = (r.category === 'グループコンサル' && r.section)
+    ? `${r.section}　${r.datetime}`
+    : r.datetime;
   top.appendChild(dt);
   card.appendChild(top);
 
   const fields = document.createElement('div');
   fields.className = 'fields';
 
-  if (r.participants) {
-    fields.appendChild(makeField('参加者', r.participants));
-  }
   if (r.leader) {
     fields.appendChild(makeField(r.category === '初回フォロー' ? '担当者' : 'リーダー', r.leader));
+  }
+  if (r.participants) {
+    fields.appendChild(makeField('参加者', r.participants));
   }
   if (r.referrer) {
     fields.appendChild(makeField('紹介者', r.referrer));
@@ -832,17 +831,6 @@ function makeRowCard(r, year) {
   const actionsWrap = document.createElement('div');
   actionsWrap.className = 'event-actions';
   actionsWrap.style.marginTop = '8px';
-
-  const gcalUrl = buildScheduleGcalUrl(r, year);
-  if (gcalUrl) {
-    const gcalLink = document.createElement('a');
-    gcalLink.className = 'btn btn-gcal';
-    gcalLink.href = gcalUrl;
-    gcalLink.target = '_blank';
-    gcalLink.rel = 'noopener';
-    gcalLink.textContent = '📅 Googleカレンダーに追加';
-    actionsWrap.appendChild(gcalLink);
-  }
 
   let zoomId = null;
   if (r.zoomUrl) {
@@ -857,6 +845,17 @@ function makeRowCard(r, year) {
       zoomToggle.textContent = isOpen ? 'Zoomはこちら ▼' : 'Zoomはこちら ▲';
     });
     actionsWrap.appendChild(zoomToggle);
+  }
+
+  const gcalUrl = buildScheduleGcalUrl(r, year);
+  if (gcalUrl) {
+    const gcalLink = document.createElement('a');
+    gcalLink.className = 'btn btn-gcal';
+    gcalLink.href = gcalUrl;
+    gcalLink.target = '_blank';
+    gcalLink.rel = 'noopener';
+    gcalLink.textContent = '📅 Googleカレンダーに追加';
+    actionsWrap.appendChild(gcalLink);
   }
 
   if (r.applyUrl) {
