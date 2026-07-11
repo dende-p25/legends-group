@@ -514,6 +514,13 @@ function initSchedule() {
   loadData();
 }
 
+// グループコンサルの担当者・講師フィルター(チップ)の選択状態と、再フィルター時に
+// 再取得せず再描画できるようにデータをキャッシュしておく
+let scheduleSelectedSection = '';
+let cachedFirstFollowRows = [];
+let cachedScheduleRows = [];
+let cachedMonth = null;
+
 function mapTrainingCategory(catRaw) {
   const c = (catRaw || '').trim();
   if (c.includes('視聴')) return '視聴会';
@@ -522,6 +529,7 @@ function mapTrainingCategory(catRaw) {
 
 function loadData() {
   const month = CONFIG.MONTHS[monthSelect.value];
+  scheduleSelectedSection = ''; // 月を切り替えたらフィルターをリセット
   contentEl.innerHTML = '<div class="loading">読み込み中…</div>';
   statusEl.textContent = '';
 
@@ -586,6 +594,9 @@ function loadData() {
           rawRow: r.idx + 1
         }));
 
+      cachedFirstFollowRows = firstFollowRows;
+      cachedScheduleRows = scheduleRows;
+      cachedMonth = month;
       render(firstFollowRows, scheduleRows, month);
     })
     .catch(() => {
@@ -613,6 +624,49 @@ function render(firstFollowRows, scheduleRows, month) {
 
     if (category === '初回フォロー') {
       catRows.forEach(r => block.appendChild(makeRowCard(r)));
+    } else if (category === 'グループコンサル') {
+      // 担当者・講師のタグ絞り込みチップ(すべて、を含む)
+      const allSections = [];
+      catRows.forEach(r => {
+        if (!allSections.includes(r.section)) allSections.push(r.section);
+      });
+
+      const filterWrap = document.createElement('div');
+      filterWrap.className = 'category-filter';
+      const chipDefs = ['', ...allSections];
+      chipDefs.forEach(sec => {
+        const chip = document.createElement('button');
+        chip.className = 'category-chip' + (scheduleSelectedSection === sec ? ' active' : '');
+        chip.textContent = sec === '' ? 'すべて' : sec;
+        chip.addEventListener('click', () => {
+          scheduleSelectedSection = sec;
+          render(cachedFirstFollowRows, cachedScheduleRows, cachedMonth);
+        });
+        filterWrap.appendChild(chip);
+      });
+      block.appendChild(filterWrap);
+
+      const visibleRows = scheduleSelectedSection
+        ? catRows.filter(r => r.section === scheduleSelectedSection)
+        : catRows;
+
+      const sectionOrder = [];
+      const grouped = {};
+      visibleRows.forEach(r => {
+        if (!grouped[r.section]) {
+          grouped[r.section] = [];
+          sectionOrder.push(r.section);
+        }
+        grouped[r.section].push(r);
+      });
+
+      sectionOrder.forEach(section => {
+        const sTitle = document.createElement('div');
+        sTitle.className = 'section-title';
+        sTitle.textContent = section;
+        block.appendChild(sTitle);
+        grouped[section].forEach(r => block.appendChild(makeRowCard(r)));
+      });
     } else {
       const sectionOrder = [];
       const grouped = {};
@@ -679,15 +733,9 @@ function makeRowCard(r) {
     const zoomEl = document.createElement('div');
     zoomEl.className = 'field';
     zoomEl.style.marginTop = '6px';
+    zoomEl.style.whiteSpace = 'pre-wrap';
     zoomEl.innerHTML = linkify(escapeHtml(r.zoomUrl));
     card.appendChild(zoomEl);
-  }
-
-  if (!r.participants) {
-    const note = document.createElement('span');
-    note.className = 'empty-note';
-    note.textContent = '空き枠';
-    card.appendChild(note);
   }
 
   if (!r.rawRow) {
