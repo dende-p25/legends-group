@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🦁チーム運営管理サイト</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+  :root{
+    --bg: #f6f3ee;
+    --card: #ffffff;
+    --ink: #292522;
+    --ink-soft: #6f6a63;
+    --line: #e7e2da;
+    --accent: #2f6b63;
+    --accent-soft: #e4efec;
+    --gold: #b98a3d;
+    --danger: #c1552e;
+    --radius: 14px;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+  body{
+    font-family:'Noto Sans JP','Hiragino Sans',sans-serif;
+    background:var(--bg);
+    color:var(--ink);
+    line-height:1.7;
+  }
+  header{
+    text-align:center;
+    padding:44px 20px 30px;
+  }
+  header h1{
+    font-family:'Shippori Mincho', serif;
+    font-size:1.7rem;
+    font-weight:700;
+    letter-spacing:.06em;
+  }
+  header p{
+    color:var(--ink-soft);
+    font-size:.85rem;
+    margin-top:6px;
+    letter-spacing:.04em;
+  }
+  main{
+    max-width:680px;
+    margin:0 auto;
+    padding:0 16px 80px;
+  }
+
+  .toolbar{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:10px;
+    margin-bottom:28px;
+  }
+  select{
+    padding:10px 14px;
+    border:1.5px solid var(--line);
+    border-radius:10px;
+    font-size:.85rem;
+    font-family:inherit;
+    background:#fff;
+    color:var(--ink);
+  }
+  select:focus{ outline:none; border-color:var(--accent); }
+  .status{ font-size:.78rem; color:var(--ink-soft); }
+
+  .block{ margin-bottom:34px; }
+  .block-title{
+    font-family:'Shippori Mincho', serif;
+    font-size:1.1rem;
+    font-weight:700;
+    text-align:center;
+    margin-bottom:16px;
+    padding-bottom:10px;
+    border-bottom:1px solid var(--line);
+  }
+  .section-title{
+    display:inline-block;
+    font-size:.78rem;
+    font-weight:700;
+    color:var(--accent);
+    background:var(--accent-soft);
+    padding:4px 14px;
+    border-radius:20px;
+    margin:18px 0 10px;
+  }
+  .section-title:first-of-type{ margin-top:0; }
+
+  .row-card{
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:14px 16px;
+    margin-bottom:10px;
+  }
+  .row-top{
+    display:flex; align-items:baseline; justify-content:space-between;
+    gap:8px; flex-wrap:wrap;
+  }
+  .datetime{ font-size:.92rem; font-weight:700; color:var(--gold); }
+  .fields{
+    display:flex; flex-wrap:wrap; gap:4px 16px; margin-top:6px;
+  }
+  .field{ font-size:.78rem; color:var(--ink-soft); }
+  .field b{ color:var(--ink); font-weight:700; }
+
+  .register{ display:flex; gap:8px; margin-top:12px; }
+  .register input{
+    flex:1; padding:9px 12px; border-radius:10px;
+    border:1.5px solid var(--line); font-size:.85rem; font-family:inherit;
+  }
+  .register input:focus{ outline:none; border-color:var(--accent); }
+  .register button{
+    padding:0 16px; border-radius:20px; border:none;
+    background:var(--gold); color:#fff; font-size:.78rem; font-weight:700;
+    font-family:inherit; cursor:pointer;
+  }
+  .register button:hover{ background:#9c7530; }
+  .register button:active{ transform:scale(0.98); }
+  .register button:disabled{ opacity:.5; cursor:default; }
+
+  .empty-note{
+    display:inline-block; margin-top:8px; font-size:.72rem; font-weight:700;
+    color:var(--accent); background:var(--accent-soft);
+    padding:3px 10px; border-radius:20px;
+  }
+  .msg{ font-size:.74rem; margin-top:6px; }
+  .msg.ok{ color:var(--accent); }
+  .msg.err{ color:var(--danger); }
+
+  .loading, .empty-state{
+    text-align:center; color:#b3aca2; font-size:.88rem; padding:60px 0;
+  }
+
+  footer{
+    text-align:center; padding:24px; color:#c3bcb0; font-size:.75rem;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🦁チーム運営管理サイト</h1>
+  <p>初回フォロー・グループコンサル・ユーザーサポート会の日程一覧</p>
+</header>
+
+<main>
+  <div class="toolbar">
+    <select id="monthSelect"></select>
+    <span class="status" id="statusText"></span>
+  </div>
+
+  <div id="content">
+    <div class="loading">読み込み中…</div>
+  </div>
+</main>
+
+<footer>© LunaRa Lab</footer>
+
+<script>
+/* ================= 設定 ================= */
+const CONFIG = {
+  // 正規化シートが入っているスプレッドシートのID
+  SPREADSHEET_ID: 'YOUR_SPREADSHEET_ID',
+
+  // GAS(参加登録用)のウェブアプリURL
+  GAS_URL: 'YOUR_GAS_WEBAPP_URL',
+
+  // 月ごとの正規化シートタブ名と、書き込み先の元シートタブ名のペア
+  // 新しい月が増えたらここに追加していく
+  MONTHS: [
+    { label: '2026年7月', normalizedSheet: '0_正規化_7月', rawSheet: '7月' }
+    // { label: '2026年8月', normalizedSheet: '0_正規化_8月', rawSheet: '8月' },
+  ],
+
+  // 表示する大区分の順番
+  CATEGORY_ORDER: ['初回フォロー', 'グループコンサル', 'ユーザーサポート会']
+};
+/* ========================================= */
+
+const monthSelect = document.getElementById('monthSelect');
+const contentEl = document.getElementById('content');
+const statusEl = document.getElementById('statusText');
+
+function init() {
+  CONFIG.MONTHS.forEach((m, i) => {
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = m.label;
+    monthSelect.appendChild(opt);
+  });
+  monthSelect.addEventListener('change', loadData);
+  loadData();
+}
+
+function csvUrl(sheetName) {
+  return `https://docs.google.com/spreadsheets/d/${CONFIG.SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
+}
+
+function loadData() {
+  const month = CONFIG.MONTHS[monthSelect.value];
+  contentEl.innerHTML = '<div class="loading">読み込み中...</div>';
+  statusEl.textContent = '';
+
+  Papa.parse(csvUrl(month.normalizedSheet), {
+    download: true,
+    complete: (results) => {
+      const rows = results.data
+        .filter(r => r.length >= 8 && (r[2] || '').trim() !== '') // C列(日程)が空でない行のみ
+        .map(r => ({
+          category: (r[0] || '').trim(),
+          section: (r[1] || '').trim(),
+          datetime: (r[2] || '').trim(),
+          participants: (r[3] || '').trim(),
+          leader: (r[4] || '').trim(),
+          referrer: (r[5] || '').trim(),
+          note: (r[6] || '').trim(),
+          rawRow: (r[7] || '').trim()
+        }));
+      render(rows, month);
+    },
+    error: () => {
+      contentEl.innerHTML = '<div class="empty-state">データの取得に失敗しました。シート名やIDを確認してください。</div>';
+    }
+  });
+}
+
+function render(rows, month) {
+  if (rows.length === 0) {
+    contentEl.innerHTML = '<div class="empty-state">この月のデータがありません。</div>';
+    return;
+  }
+
+  contentEl.innerHTML = '';
+
+  CONFIG.CATEGORY_ORDER.forEach(category => {
+    const catRows = rows.filter(r => r.category === category);
+    if (catRows.length === 0) return;
+
+    const block = document.createElement('div');
+    block.className = 'block';
+
+    const blockTitle = document.createElement('div');
+    blockTitle.className = 'block-title';
+    blockTitle.textContent = category;
+    block.appendChild(blockTitle);
+
+    if (category === '初回フォロー') {
+      catRows.forEach(r => block.appendChild(makeRowCard(r, month)));
+    } else {
+      // セクション(担当者/講師)ごとに、出現順を保ったままグループ化
+      const sectionOrder = [];
+      const grouped = {};
+      catRows.forEach(r => {
+        if (!grouped[r.section]) {
+          grouped[r.section] = [];
+          sectionOrder.push(r.section);
+        }
+        grouped[r.section].push(r);
+      });
+
+      sectionOrder.forEach(section => {
+        const sTitle = document.createElement('div');
+        sTitle.className = 'section-title';
+        sTitle.textContent = section;
+        block.appendChild(sTitle);
+        grouped[section].forEach(r => block.appendChild(makeRowCard(r, month)));
+      });
+    }
+
+    contentEl.appendChild(block);
+  });
+
+  statusEl.textContent = `${rows.length}件の枠を表示中`;
+}
+
+function makeRowCard(r, month) {
+  const card = document.createElement('div');
+  card.className = 'row-card';
+
+  const top = document.createElement('div');
+  top.className = 'row-top';
+  const dt = document.createElement('div');
+  dt.className = 'datetime';
+  dt.textContent = r.datetime;
+  top.appendChild(dt);
+  card.appendChild(top);
+
+  const fields = document.createElement('div');
+  fields.className = 'fields';
+
+  if (r.participants) {
+    fields.appendChild(makeField('参加者', r.participants));
+  }
+  if (r.leader) {
+    fields.appendChild(makeField(r.category === '初回フォロー' ? '担当者' : 'リーダー', r.leader));
+  }
+  if (r.referrer) {
+    fields.appendChild(makeField('紹介者', r.referrer));
+  }
+  if (r.note) {
+    fields.appendChild(makeField('備考', r.note));
+  }
+  card.appendChild(fields);
+
+  if (!r.participants) {
+    const note = document.createElement('span');
+    note.className = 'empty-note';
+    note.textContent = '空き枠';
+    card.appendChild(note);
+  }
+
+  // 参加登録フォーム
+  const form = document.createElement('div');
+  form.className = 'register';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.placeholder = '参加者名を入力';
+  const btn = document.createElement('button');
+  btn.textContent = '登録';
+  form.appendChild(input);
+  form.appendChild(btn);
+  card.appendChild(form);
+
+  const msg = document.createElement('div');
+  msg.className = 'msg';
+  card.appendChild(msg);
+
+  btn.addEventListener('click', () => register(r, month, input, btn, msg));
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') register(r, month, input, btn, msg);
+  });
+
+  return card;
+}
+
+function makeField(label, value) {
+  const span = document.createElement('span');
+  span.className = 'field';
+  span.innerHTML = `<b>${label}:</b> ${escapeHtml(value)}`;
+  return span;
+}
+
+function register(r, month, input, btn, msg) {
+  const name = input.value.trim();
+  if (!name) return;
+
+  btn.disabled = true;
+  msg.textContent = '登録中...';
+  msg.className = 'msg';
+
+  const params = new URLSearchParams({
+    action: 'register',
+    sheetName: month.rawSheet,
+    row: r.rawRow,
+    category: r.category,
+    name: name
+  });
+
+  fetch(`${CONFIG.GAS_URL}?${params.toString()}`)
+    .then(res => res.json())
+    .then(data => {
+      btn.disabled = false;
+      if (data.success) {
+        msg.textContent = '登録しました';
+        msg.className = 'msg ok';
+        input.value = ''; // 送信後は入力欄をクリア(代理入力しやすくする)
+        setTimeout(loadData, 800); // 最新状態を再取得
+      } else {
+        msg.textContent = 'エラー: ' + (data.error || '不明なエラー');
+        msg.className = 'msg err';
+      }
+    })
+    .catch(() => {
+      btn.disabled = false;
+      msg.textContent = '通信エラーが発生しました';
+      msg.className = 'msg err';
+    });
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+init();
+</script>
+</body>
+</html>
