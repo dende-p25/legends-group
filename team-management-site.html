@@ -109,6 +109,18 @@
     gap:8px;
     margin-bottom:20px;
   }
+  .timezone-select{ margin-bottom:14px; }
+  .timezone-select select{
+    width:100%;
+    padding:10px 12px;
+    border:1.5px solid var(--line);
+    border-radius:10px;
+    font-size:.82rem;
+    font-family:inherit;
+    background:#fff;
+    color:var(--ink);
+  }
+  .timezone-select select:focus{ outline:none; border-color:var(--accent); }
   .category-chip{
     padding:7px 15px;
     border-radius:20px;
@@ -514,6 +526,35 @@ function parseJpScheduleRange(str, year) {
   return { start, end };
 }
 
+// 日程文字列(日本時間として入力されている)を、正しい絶対時刻(UTC基準のDate)に変換する
+function jpScheduleToAbsolute(str, year, useEnd) {
+  const md = (str || '').match(/^(\d{1,2})\/(\d{1,2})/);
+  if (!md) return null;
+  const month = parseInt(md[1], 10);
+  const day = parseInt(md[2], 10);
+  const times = [...(str || '').matchAll(/(\d{1,2}):(\d{2})/g)];
+  if (times.length === 0) return null;
+  const t = useEnd ? times[times.length - 1] : times[0];
+  const hour = parseInt(t[1], 10);
+  const minute = parseInt(t[2], 10);
+  const pad = n => String(n).padStart(2, '0');
+  return new Date(`${year}-${pad(month)}-${pad(day)}T${pad(hour)}:${pad(minute)}:00+09:00`);
+}
+
+// 予定管理カード用: 端末のタイムゾーンで見た日時表示(日本時間と異なる場合のみ表示に使う)
+function formatScheduleInDeviceZone(datetimeStr, year) {
+  const start = jpScheduleToAbsolute(datetimeStr, year, false);
+  if (!start) return null;
+  const end = jpScheduleToAbsolute(datetimeStr, year, true);
+  const tz = getDeviceTimeZone();
+  const fmt = (d) => new Intl.DateTimeFormat('ja-JP', {
+    timeZone: tz, year: 'numeric', month: 'numeric', day: 'numeric', weekday: 'short',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+  }).format(d);
+  if (!end || end.getTime() === start.getTime()) return fmt(start);
+  return `${fmt(start)} 〜 ${fmt(end)}`;
+}
+
 // 一覧を日付の早い順に並べるためのソートキー(開始時刻。読み取れない場合は末尾に回す)
 function scheduleSortKey(r, year) {
   const range = parseJpScheduleRange(r.datetime, year);
@@ -846,6 +887,17 @@ function makeRowCard(r, year) {
     top.appendChild(badge);
   }
   card.appendChild(top);
+
+  if (getDeviceTimeZone() !== 'Asia/Tokyo') {
+    const localTime = formatScheduleInDeviceZone(r.datetime, year);
+    if (localTime) {
+      const localEl = document.createElement('div');
+      localEl.className = 'field';
+      localEl.style.marginTop = '2px';
+      localEl.textContent = `（${localTime}）`;
+      card.appendChild(localEl);
+    }
+  }
 
   const fields = document.createElement('div');
   fields.className = 'fields';
