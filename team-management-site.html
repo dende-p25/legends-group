@@ -1191,9 +1191,9 @@ function loadTrainingEvents() {
             end,
             dateKey,
             category,
-            applyUrl: (row['申込シート'] || '').trim() || null,
             detail: row.detail || '',
             sheetUrl: (row.sheetUrl || '').trim() || null,
+            rawRow: matched ? matched.row : null,
             categories: (row.category || '')
               .split(',')
               .map(c => c.trim())
@@ -1371,14 +1371,13 @@ function renderTraining() {
             <a class="btn btn-gcal" href="${buildGcalUrl(ev)}" target="_blank" rel="noopener">
               📅 Googleカレンダーに追加
             </a>` : ''}
-            ${!isPastEvent(ev) && ev.applyUrl ? `
-            <a class="btn btn-sheet" href="${ev.applyUrl}" target="_blank" rel="noopener">
-              📝 申込をする
-            </a>` : ''}
             ${!isPastEvent(ev) && ev.sheetUrl ? `
             <a class="btn btn-sheet" href="${ev.sheetUrl}" target="_blank" rel="noopener">
-              🔍 入力確認する
+              📝 申込をする
             </a>` : ''}
+            <a class="btn btn-sheet" href="${buildSheetRowUrl(CONFIG.PARTICIPANTS_SOURCE.SCHEDULE_TAB_GID, ev.rawRow)}" target="_blank" rel="noopener">
+              🔍 入力確認する
+            </a>
           </div>
           <div class="join-row" id="t-join-${i}"></div>
         </div>
