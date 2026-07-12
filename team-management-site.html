@@ -439,8 +439,8 @@ const CONFIG = {
     FIRST_FOLLOW_TAB_GID: '1676811778'
   },
 
-  // GAS(参加登録用)のウェブアプリURL。register/update/join/cancelの全アクションで共通。
-  GAS_URL: 'https://script.google.com/macros/s/AKfycbwp_cAlPZ6ZHOb52k65dzYOAB1ZzYIBiUB7uRdT73sh0_Vyf337Kge34GS2gXjvTxaD/exec',
+  // GAS(参加登録用)のウェブアプリURL。register/updateの全アクションで共通。
+  GAS_URL: 'https://script.google.com/macros/s/AKfycbyps8aqEVnyNziDg0SmrCsoMZl3J8UlabMFJzDVsamsHlbLDXYs7cvvwM8inavarLUZ/exec',
 
   // 表示する月(日程文字列 "7/3(月)..." の先頭月数字で絞り込む)
   MONTHS: [
@@ -448,16 +448,10 @@ const CONFIG = {
     // { label: '2026年8月', month: 8, year: 2026 },
   ],
 
-  // 視聴会・トレーニングのデータ元(別のスプレッドシート。参加登録あり)
+  // 視聴会・トレーニングのデータ元(別のスプレッドシート。予定情報のみ、参加者は下のPARTICIPANTS_SOURCEに一元化)
   TRAINING_SOURCE: {
     SPREADSHEET_ID: '1qzOUSIEb-yfikltC9dLhSqKQPRBImZABpw4OFRbxXko',
     SHEET_NAME: '視聴会・トレーニング'
-  },
-
-  // 視聴会・トレーニングの参加者一覧(申込ログ)の読み込み元
-  JOIN_LOG_SOURCE: {
-    SPREADSHEET_ID: '1rmy1VNkjKLO9SiwgxJOSXjGp06Vag-R1G8l-SRIvSSs',
-    SHEET_NAME: '【見る専】管理ログ'
   },
 
   // グループコンサル/ユーザーサポート会の「日程・担当者・グルコンリーダー・zoomURL」の入力元
@@ -1152,31 +1146,6 @@ let TRAINING_EVENTS = [];
 let trainingLoaded = false;
 let trainingSelectedCategory = '';
 
-function getStoredName() {
-  return localStorage.getItem('participantName') || '';
-}
-function setStoredName(name) {
-  localStorage.setItem('participantName', name);
-}
-function getJoinedMap() {
-  try { return JSON.parse(localStorage.getItem('joinedEvents') || '{}'); }
-  catch (e) { return {}; }
-}
-function setJoinedMap(map) {
-  localStorage.setItem('joinedEvents', JSON.stringify(map));
-}
-
-async function callGas(action, eventTitle, eventDate, name, category) {
-  const url = new URL(CONFIG.GAS_URL);
-  url.searchParams.set('action', action);
-  url.searchParams.set('event', eventTitle);
-  url.searchParams.set('date', eventDate);
-  url.searchParams.set('name', name);
-  url.searchParams.set('category', category || '');
-  const res = await fetch(url.toString());
-  return res.json();
-}
-
 function loadTrainingEvents() {
   const statusEl2 = document.getElementById('trainingStatusMsg');
   statusEl2.style.display = 'block';
@@ -1184,31 +1153,54 @@ function loadTrainingEvents() {
   document.getElementById('trainingEventList').innerHTML = '';
 
   const url = csvUrl(CONFIG.TRAINING_SOURCE.SPREADSHEET_ID, CONFIG.TRAINING_SOURCE.SHEET_NAME);
-  const logUrl = csvUrl(CONFIG.JOIN_LOG_SOURCE.SPREADSHEET_ID, CONFIG.JOIN_LOG_SOURCE.SHEET_NAME);
+  const gcUsUrl = csvUrl(CONFIG.PARTICIPANTS_SOURCE.SPREADSHEET_ID, CONFIG.PARTICIPANTS_SOURCE.SCHEDULE_TAB);
 
   Promise.all([
     parseCsv(url, true),
-    parseCsv(logUrl, false)
+    parseCsv(gcUsUrl, false)
   ])
-    .then(([data, logData]) => {
-      const participantsByEvent = buildTrainingParticipantMap(logData);
+    .then(([data, gcUsData]) => {
+      // 「グルコン/ユーサポ」タブの参加者データを「大区分+タイトル+日程」でルックアップできるようにする
+      const participantMap = {};
+      gcUsData.forEach((row, i) => {
+        if (i === 0) return; // ヘッダー行
+        const cat = (row[0] || '').trim();
+        const section = (row[1] || '').trim();
+        const datetime = (row[2] || '').trim();
+        if (!datetime) return;
+        participantMap[`${cat}\u0001${section}\u0001${datetime}`] = {
+          participants: (row[3] || '').trim(),
+          row: i + 1
+        };
+      });
 
       const parsed = data
         .filter(row => row.title && row.start)
-        .map(row => ({
-          image: (row.image || '').trim(),
-          title: (row.title || '').trim(),
-          place: (row.place || '').trim(),
-          start: (row.start || '').trim(),
-          end: (row.end || '').trim(),
-          detail: row.detail || '',
-          sheetUrl: (row.sheetUrl || '').trim() || null,
-          categories: (row.category || '')
-            .split(',')
-            .map(c => c.trim())
-            .filter(Boolean),
-          participants: (participantsByEvent[(row.title || '').trim()] || []).join('、')
-        }));
+        .map(row => {
+          const category = mapTrainingCategory(row.category);
+          const title = (row.title || '').trim();
+          const start = (row.start || '').trim();
+          const end = (row.end || '').trim();
+          const dateKey = formatDateRange(start, end); // 参加者データ側とのマッチングキー
+          const matched = participantMap[`${category}\u0001${title}\u0001${dateKey}`];
+          return {
+            image: (row.image || '').trim(),
+            title,
+            place: (row.place || '').trim(),
+            start,
+            end,
+            dateKey,
+            category,
+            applyUrl: (row['申込シート'] || '').trim() || null,
+            detail: row.detail || '',
+            sheetUrl: (row.sheetUrl || '').trim() || null,
+            categories: (row.category || '')
+              .split(',')
+              .map(c => c.trim())
+              .filter(Boolean),
+            participants: matched ? matched.participants : ''
+          };
+        });
       parsed.sort((a, b) => new Date(a.start) - new Date(b.start));
       TRAINING_EVENTS = parsed;
       trainingLoaded = true;
@@ -1220,29 +1212,6 @@ function loadTrainingEvents() {
       statusEl2.style.display = 'block';
       statusEl2.textContent = '予定の読み込みに失敗しました。シート名・共有設定をご確認ください。';
     });
-}
-
-// 「【見る専】管理ログ」タブ(A:日時 B:イベント名 C:日程 D:名前 E:カテゴリ F:ステータス)から
-// イベントごとの参加者一覧を組み立てる。同じ人が複数回登録/キャンセルしている場合は
-// 最後のステータスを採用する。
-function buildTrainingParticipantMap(logRows) {
-  const statusMap = {};
-  logRows.forEach(r => {
-    const eventTitle = (r[1] || '').trim();
-    const name = (r[3] || '').trim();
-    const status = (r[5] || '').trim();
-    if (!eventTitle || !name) return;
-    statusMap[`${eventTitle}\u0001${name}`] = status;
-  });
-
-  const participantsByEvent = {};
-  Object.keys(statusMap).forEach(key => {
-    if (statusMap[key] !== '参加') return;
-    const [eventTitle, name] = key.split('\u0001');
-    if (!participantsByEvent[eventTitle]) participantsByEvent[eventTitle] = [];
-    participantsByEvent[eventTitle].push(name);
-  });
-  return participantsByEvent;
 }
 
 function renderTrainingCategoryFilter() {
@@ -1396,7 +1365,7 @@ function renderTraining() {
           ${ev.participants ? `<div class="field" style="margin-top:6px;"><b>参加者:</b> ${escapeHtml(ev.participants)}</div>` : ''}
           <div class="event-actions">
             <button class="btn btn-toggle" onclick="toggleTrainingDetail(${i})">
-              詳細を見る <span class="arrow" id="t-arrow-${i}">▼</span>
+              Zoomはこちら <span class="arrow" id="t-arrow-${i}">▼</span>
             </button>
             ${!isPastEvent(ev) ? `
             <a class="btn btn-gcal" href="${buildGcalUrl(ev)}" target="_blank" rel="noopener">
@@ -1420,7 +1389,7 @@ function renderTraining() {
     </div>
   `).join('');
 
-  filtered.forEach(({ ev, i }) => renderTrainingJoinRow(ev, i));
+  filtered.forEach(({ ev, i }) => renderTrainingRegisterRow(ev, i));
 }
 
 function toggleTrainingDetail(i) {
@@ -1431,10 +1400,9 @@ function toggleTrainingDetail(i) {
   arrow.classList.toggle('open', !isOpen);
 }
 
-// フォームが一度開かれたイベントは、送信後も引き続き入力欄を表示する(代理入力対応)
-const trainingFormOpen = {};
-
-function renderTrainingJoinRow(ev, i) {
+// 視聴会・トレーニングの参加登録/編集フォームを描画する
+// (グルコン/ユーサポと同じ「グルコン/ユーサポ」タブに書き込む方式に統一)
+function renderTrainingRegisterRow(ev, i) {
   const row = document.getElementById(`t-join-${i}`);
   if (!row) return;
 
@@ -1443,99 +1411,136 @@ function renderTrainingJoinRow(ev, i) {
     return;
   }
 
-  const joined = getJoinedMap()[ev.title];
-  let html = '';
-
-  if (joined) {
-    html += `
-      <span class="join-status">✓送信済み</span>
-      <button class="btn btn-cancel" onclick="handleTrainingCancel(${i})">キャンセル申請したらタップ</button>
-    `;
-  }
-
-  if (joined || trainingFormOpen[i]) {
-    html += `
-      <div class="join-form">
-        <input type="text" id="t-joinName-${i}" placeholder="お名前・ニックネーム">
-        <button class="btn btn-join" onclick="handleTrainingJoinSubmit(${i})">送信</button>
+  row.innerHTML = `
+    <div class="register" style="margin-top:10px;">
+      <input type="text" id="t-name-${i}" placeholder="参加者名を入力">
+    </div>
+    <div class="register" style="margin-top:6px;">
+      <input type="text" id="t-referrer-${i}" placeholder="紹介者名">
+      <button class="btn btn-join" id="t-register-btn-${i}">登録</button>
+    </div>
+    <div class="msg" id="t-msg-${i}"></div>
+    <button class="btn btn-toggle" id="t-edit-toggle-${i}" style="margin-top:8px;">✏️ 編集する</button>
+    <div id="t-edit-wrap-${i}" style="display:none;margin-top:8px;">
+      <div class="register">
+        <input type="text" id="t-edit-input-${i}" value="${escapeHtml(ev.participants || '')}" placeholder="参加者欄の内容(上書きされます)">
+        <button class="btn btn-join" id="t-edit-btn-${i}">更新</button>
       </div>
-      <div class="join-msg" id="t-joinMsg-${i}"></div>
-    `;
-  } else {
-    html += `<button class="btn btn-join" onclick="showTrainingJoinForm(${i})">✅申込シート入力後タップ</button>`;
-  }
+      <div class="msg" id="t-edit-msg-${i}"></div>
+    </div>
+  `;
 
-  row.innerHTML = html;
-}
+  const nameInput = document.getElementById(`t-name-${i}`);
+  const referrerInput = document.getElementById(`t-referrer-${i}`);
+  const registerBtn = document.getElementById(`t-register-btn-${i}`);
+  const msg = document.getElementById(`t-msg-${i}`);
 
-function showTrainingJoinForm(i) {
-  trainingFormOpen[i] = true;
-  renderTrainingJoinRow(TRAINING_EVENTS[i], i);
-}
-
-async function handleTrainingJoinSubmit(i) {
-  const ev = TRAINING_EVENTS[i];
-  const input = document.getElementById(`t-joinName-${i}`);
-  const msgEl = document.getElementById(`t-joinMsg-${i}`);
-  const name = input.value.trim();
-
-  if (!name) {
-    msgEl.textContent = 'お名前を入力してください';
-    msgEl.classList.remove('ok');
-    return;
-  }
-
-  msgEl.textContent = '送信中…';
-  msgEl.classList.remove('ok');
-
-  try {
-    const result = await callGas('join', ev.title, formatDateRange(ev.start, ev.end), name, ev.categories.join(','));
-
-    if (result.result === 'ok' || result.result === 'duplicate') {
-      setStoredName(name);
-      const map = getJoinedMap();
-      map[ev.title] = true;
-      setJoinedMap(map);
-      trainingFormOpen[i] = true;
-      renderTrainingJoinRow(ev, i);
-      // 送信後は入力欄をクリアして表示したままにし、続けて別の人の代理入力ができるようにする
-      const newInput = document.getElementById(`t-joinName-${i}`);
-      if (newInput) newInput.value = '';
-      // 参加者一覧に反映するため再取得する
-      setTimeout(loadTrainingEvents, 800);
-    } else {
-      msgEl.textContent = '登録に失敗しました。もう一度お試しください';
+  registerBtn.addEventListener('click', () => trainingRegisterParticipant(ev, nameInput, referrerInput, registerBtn, msg));
+  nameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      referrerInput.focus();
     }
-  } catch (err) {
-    msgEl.textContent = '通信エラーが発生しました。時間をおいて再度お試しください';
-  }
+  });
+  referrerInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') trainingRegisterParticipant(ev, nameInput, referrerInput, registerBtn, msg);
+  });
+
+  const editToggle = document.getElementById(`t-edit-toggle-${i}`);
+  const editWrap = document.getElementById(`t-edit-wrap-${i}`);
+  const editInput = document.getElementById(`t-edit-input-${i}`);
+  const editBtn = document.getElementById(`t-edit-btn-${i}`);
+  const editMsg = document.getElementById(`t-edit-msg-${i}`);
+
+  editToggle.addEventListener('click', () => {
+    const isOpen = editWrap.style.display === 'block';
+    editWrap.style.display = isOpen ? 'none' : 'block';
+    editToggle.textContent = isOpen ? '✏️ 編集する' : '✏️ 編集を閉じる';
+  });
+  editBtn.addEventListener('click', () => trainingUpdateParticipants(ev, editInput, editBtn, editMsg));
+  editInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') trainingUpdateParticipants(ev, editInput, editBtn, editMsg);
+  });
 }
 
-async function handleTrainingCancel(i) {
-  const ev = TRAINING_EVENTS[i];
-  const name = getStoredName();
+function trainingRegisterParticipant(ev, nameInput, referrerInput, btn, msg) {
+  const name = nameInput.value.trim();
+  if (!name) return;
+  const referrer = referrerInput.value.trim();
+  const combinedName = referrer ? `${name}（${referrer}）` : name;
 
-  if (!name) {
-    alert('登録時のお名前が確認できませんでした。お手数ですが管理者へご連絡ください。');
-    return;
-  }
+  btn.disabled = true;
+  msg.textContent = '登録中...';
+  msg.className = 'msg';
 
-  try {
-    const result = await callGas('cancel', ev.title, formatDateRange(ev.start, ev.end), name);
+  const params = new URLSearchParams({
+    action: 'register',
+    category: ev.category,
+    section: ev.title,
+    datetime: ev.dateKey,
+    name: combinedName
+  });
 
-    if (result.result === 'ok' || result.result === 'not_found') {
-      const map = getJoinedMap();
-      delete map[ev.title]; // キャンセル→削除済み
-      setJoinedMap(map);
-      renderTrainingJoinRow(ev, i);
-      // 参加者一覧に反映するため再取得する
-      setTimeout(loadTrainingEvents, 800);
-    } else {
-      alert('キャンセル処理に失敗しました。時間をおいて再度お試しください。');
-    }
-  } catch (err) {
-    alert('通信エラーが発生しました。時間をおいて再度お試しください。');
-  }
+  fetch(`${CONFIG.GAS_URL}?${params.toString()}`)
+    .then(res => res.json())
+    .then(data => {
+      btn.disabled = false;
+      if (data.success) {
+        msg.textContent = '登録しました';
+        msg.className = 'msg ok';
+        nameInput.value = '';
+        referrerInput.value = '';
+        // スプシ側の読み込み(gviz)の遅延を待たず、その場で反映する
+        ev.participants = ev.participants ? `${ev.participants}、${combinedName}` : combinedName;
+        setTimeout(renderTraining, 500);
+        setTimeout(loadTrainingEvents, 6000);
+      } else {
+        msg.textContent = 'エラー: ' + (data.error || '不明なエラー');
+        msg.className = 'msg err';
+      }
+    })
+    .catch(() => {
+      btn.disabled = false;
+      msg.textContent = '通信エラーが発生しました';
+      msg.className = 'msg err';
+    });
+}
+
+function trainingUpdateParticipants(ev, input, btn, msg) {
+  const value = input.value.trim();
+
+  btn.disabled = true;
+  msg.textContent = '更新中...';
+  msg.className = 'msg';
+
+  const params = new URLSearchParams({
+    action: 'update',
+    category: ev.category,
+    section: ev.title,
+    datetime: ev.dateKey,
+    name: value
+  });
+
+  fetch(`${CONFIG.GAS_URL}?${params.toString()}`)
+    .then(res => res.json())
+    .then(data => {
+      btn.disabled = false;
+      if (data.success) {
+        msg.textContent = '更新しました';
+        msg.className = 'msg ok';
+        ev.participants = value;
+        setTimeout(renderTraining, 500);
+        setTimeout(loadTrainingEvents, 6000);
+      } else {
+        msg.textContent = 'エラー: ' + (data.error || '不明なエラー');
+        msg.className = 'msg err';
+      }
+    })
+    .catch(() => {
+      btn.disabled = false;
+      msg.textContent = '通信エラーが発生しました';
+      msg.className = 'msg err';
+    });
 }
 
 document.getElementById('trainingSearch').addEventListener('input', renderTraining);
