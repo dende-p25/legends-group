@@ -1089,7 +1089,11 @@ function registerParticipant(r, input, referrerInput, btn, msg) {
         msg.className = 'msg ok';
         input.value = '';
         if (referrerInput) referrerInput.value = '';
-        setTimeout(loadData, 800);
+        // スプシ側の読み込み(gviz)にキャッシュの遅延があるため、再取得を待たずその場で反映する
+        r.participants = r.participants ? `${r.participants}、${combinedName}` : combinedName;
+        setTimeout(() => render(cachedFirstFollowRows, cachedScheduleRows, cachedMonth), 500);
+        // 裏側では少し時間を置いてから正式なデータとも同期しておく
+        setTimeout(loadData, 6000);
       } else {
         msg.textContent = 'エラー: ' + (data.error || '不明なエラー');
         msg.className = 'msg err';
@@ -1125,7 +1129,10 @@ function updateParticipants(r, input, btn, msg) {
       if (data.success) {
         msg.textContent = '更新しました';
         msg.className = 'msg ok';
-        setTimeout(loadData, 800);
+        // スプシ側の読み込み(gviz)にキャッシュの遅延があるため、再取得を待たずその場で反映する
+        r.participants = value;
+        setTimeout(() => render(cachedFirstFollowRows, cachedScheduleRows, cachedMonth), 500);
+        setTimeout(loadData, 6000);
       } else {
         msg.textContent = 'エラー: ' + (data.error || '不明なエラー');
         msg.className = 'msg err';
