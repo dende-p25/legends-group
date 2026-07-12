@@ -156,6 +156,24 @@
     padding:14px 16px;
     margin-bottom:10px;
   }
+  .row-card.today{
+    background:#fdf6e8;
+    border-color:var(--gold);
+    border-width:1.5px;
+  }
+  .today-badge{
+    display:inline-flex;
+    align-items:center;
+    height:20px;
+    padding:0 9px;
+    border-radius:20px;
+    font-size:.68rem;
+    font-weight:700;
+    background:var(--gold);
+    color:#fff;
+    margin-left:6px;
+    vertical-align:middle;
+  }
   .row-top{
     display:flex; align-items:baseline; justify-content:space-between;
     gap:8px; flex-wrap:wrap;
@@ -206,6 +224,11 @@
   .event-card.past{
     opacity:.55;
     filter:grayscale(.6);
+  }
+  .event-card.today{
+    background:#fdf6e8;
+    border-color:var(--gold);
+    border-width:1.5px;
   }
   .past-badge{
     display:inline-flex;
@@ -495,6 +518,16 @@ function parseJpScheduleRange(str, year) {
 function scheduleSortKey(r, year) {
   const range = parseJpScheduleRange(r.datetime, year);
   return range ? range.start.getTime() : Infinity;
+}
+
+// 日程文字列が今日の日付かどうか
+function isScheduleToday(datetimeStr, year) {
+  const md = (datetimeStr || '').match(/^(\d{1,2})\/(\d{1,2})/);
+  if (!md) return false;
+  const month = parseInt(md[1], 10);
+  const day = parseInt(md[2], 10);
+  const now = new Date();
+  return now.getFullYear() === year && (now.getMonth() + 1) === month && now.getDate() === day;
 }
 
 // 予定管理タブ(初回フォロー/グループコンサル/ユーザーサポート会)用のGoogleカレンダー追加リンク
@@ -795,7 +828,7 @@ let scheduleCardIdCounter = 0;
 
 function makeRowCard(r, year) {
   const card = document.createElement('div');
-  card.className = 'row-card';
+  card.className = 'row-card' + (isScheduleToday(r.datetime, year) ? ' today' : '');
 
   const top = document.createElement('div');
   top.className = 'row-top';
@@ -806,6 +839,12 @@ function makeRowCard(r, year) {
     ? `${r.section}　${r.datetime}`
     : r.datetime;
   top.appendChild(dt);
+  if (isScheduleToday(r.datetime, year)) {
+    const badge = document.createElement('span');
+    badge.className = 'today-badge';
+    badge.textContent = '本日';
+    top.appendChild(badge);
+  }
   card.appendChild(top);
 
   const fields = document.createElement('div');
@@ -1228,6 +1267,18 @@ function isPastEvent(ev) {
   return refDate.getTime() < Date.now();
 }
 
+// 日本時間でのYYYY-MM-DD文字列(タイムゾーンを跨いだ日付比較用)
+function jstDateString(date) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit'
+  }).format(date);
+}
+
+function isEventToday(ev) {
+  const startDate = toAbsoluteDate(ev.start);
+  return jstDateString(startDate) === jstDateString(new Date());
+}
+
 function buildGcalUrl(ev) {
   const toGcalStamp = (iso, isEnd) => {
     const allDay = iso.length <= 10;
@@ -1268,14 +1319,14 @@ function renderTraining() {
   }
 
   list.innerHTML = filtered.map(({ ev, i }) => `
-    <div class="event-card ${isPastEvent(ev) ? 'past' : ''}">
+    <div class="event-card ${isPastEvent(ev) ? 'past' : ''} ${!isPastEvent(ev) && isEventToday(ev) ? 'today' : ''}">
       <div class="event-main">
         ${ev.image
           ? `<img class="event-thumb" src="${ev.image}" alt="">`
           : `<div class="event-thumb"></div>`
         }
         <div class="event-info">
-          <div class="event-date">${formatDateRange(ev.start, ev.end)}${isPastEvent(ev) ? '<span class="past-badge">終了しました</span>' : ''}</div>
+          <div class="event-date">${formatDateRange(ev.start, ev.end)}${isPastEvent(ev) ? '<span class="past-badge">終了しました</span>' : ''}${!isPastEvent(ev) && isEventToday(ev) ? '<span class="today-badge">本日</span>' : ''}</div>
           ${getDeviceTimeZone() !== 'Asia/Tokyo' ? `<div class="field">（${formatDateRangeInDeviceZone(ev.start, ev.end)}）</div>` : ''}
           <div class="event-title">${escapeHtml(ev.title)}</div>
           ${ev.place ? `<div class="event-place">${escapeHtml(ev.place)}</div>` : ''}
