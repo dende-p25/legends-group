@@ -491,6 +491,12 @@ function parseJpScheduleRange(str, year) {
   return { start, end };
 }
 
+// 一覧を日付の早い順に並べるためのソートキー(開始時刻。読み取れない場合は末尾に回す)
+function scheduleSortKey(r, year) {
+  const range = parseJpScheduleRange(r.datetime, year);
+  return range ? range.start.getTime() : Infinity;
+}
+
 // 予定管理タブ(初回フォロー/グループコンサル/ユーザーサポート会)用のGoogleカレンダー追加リンク
 function buildScheduleGcalUrl(r, year) {
   const range = parseJpScheduleRange(r.datetime, year);
@@ -756,41 +762,29 @@ function render(firstFollowRows, scheduleRows, month) {
       ? catRows.filter(r => r.section === scheduleSelectedSection)
       : catRows;
 
-    const sectionOrder = [];
-    const grouped = {};
-    visibleRows.forEach(r => {
-      if (!grouped[r.section]) {
-        grouped[r.section] = [];
-        sectionOrder.push(r.section);
-      }
-      grouped[r.section].push(r);
-    });
+    if (!scheduleSelectedSection) {
+      // 「すべて」の時は担当者ごとにまとめず、日付の早い順のフラットな一覧にする
+      const sorted = [...visibleRows].sort((a, b) => scheduleSortKey(a, month.year) - scheduleSortKey(b, month.year));
+      sorted.forEach(r => block.appendChild(makeRowCard(r, month.year)));
+    } else {
+      const sectionOrder = [];
+      const grouped = {};
+      visibleRows.forEach(r => {
+        if (!grouped[r.section]) {
+          grouped[r.section] = [];
+          sectionOrder.push(r.section);
+        }
+        grouped[r.section].push(r);
+      });
 
-    sectionOrder.forEach(section => {
-      grouped[section].forEach(r => block.appendChild(makeRowCard(r, month.year)));
-    });
+      sectionOrder.forEach(section => {
+        grouped[section].forEach(r => block.appendChild(makeRowCard(r, month.year)));
+      });
+    }
   } else {
-    const sectionOrder = [];
-    const grouped = {};
-    catRows.forEach(r => {
-      if (!grouped[r.section]) {
-        grouped[r.section] = [];
-        sectionOrder.push(r.section);
-      }
-      grouped[r.section].push(r);
-    });
-
-    const skipSectionTitle = sectionOrder.length === 1 && sectionOrder[0] === category;
-
-    sectionOrder.forEach(section => {
-      if (!skipSectionTitle) {
-        const sTitle = document.createElement('div');
-        sTitle.className = 'section-title';
-        sTitle.textContent = section;
-        block.appendChild(sTitle);
-      }
-      grouped[section].forEach(r => block.appendChild(makeRowCard(r, month.year)));
-    });
+    // ユーザーサポート会は担当者ごとにまとめず、日付の早い順のフラットな一覧にする
+    const sorted = [...catRows].sort((a, b) => scheduleSortKey(a, month.year) - scheduleSortKey(b, month.year));
+    sorted.forEach(r => block.appendChild(makeRowCard(r, month.year)));
   }
 
   contentEl.appendChild(block);
