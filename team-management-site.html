@@ -801,8 +801,8 @@ function makeRowCard(r, year) {
   top.className = 'row-top';
   const dt = document.createElement('div');
   dt.className = 'datetime';
-  // グループコンサルは「担当者・講師　日程」を1行にまとめて表示する
-  dt.textContent = (r.category === 'グループコンサル' && r.section)
+  // グループコンサル/ユーザーサポート会は「担当者・講師　日程」を1行にまとめて表示する
+  dt.textContent = ((r.category === 'グループコンサル' || r.category === 'ユーザーサポート会') && r.section)
     ? `${r.section}　${r.datetime}`
     : r.datetime;
   top.appendChild(dt);
