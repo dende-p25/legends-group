@@ -699,11 +699,6 @@ function buildGcalUrl(ev){
 
 let openIndex = null;
 
-// 毎月16日以降は、終了済みイベントを一覧から非表示にする
-function shouldHidePastEvents(){
-  return new Date().getDate() >= 16;
-}
-
 function render(){
   const list = document.getElementById("eventList");
   const q = document.getElementById("searchBox").value.trim().toLowerCase();
@@ -714,7 +709,7 @@ function render(){
     .filter(({ev}) => !selectedRegion || ev.region === selectedRegion)
     .filter(({ev}) => !selectedPref || ev.pref === selectedPref)
     .filter(({ev}) => matchesMonth(ev.start, selectedMonth))
-    .filter(({ev}) => !(shouldHidePastEvents() && isPastEvent(ev)));
+    .filter(({ev}) => !isPastEvent(ev));
 
   if(filtered.length === 0){
     list.innerHTML = `<div class="list-empty">該当する予定がありません</div>`;
