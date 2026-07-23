@@ -291,6 +291,21 @@
   }
   .join-msg.ok{ color:var(--accent); }
 
+  .cancel-info{
+    display:none;
+    margin-top:10px;
+    padding:14px;
+    background:#faf3ec;
+    border-radius:10px;
+  }
+  .cancel-info.open{ display:block; }
+  .cancel-info-text{
+    font-size:.82rem;
+    color:#454138;
+    line-height:1.7;
+    margin-bottom:12px;
+  }
+
   .arrow{ display:inline-block; transition:transform .2s; }
   .arrow.open{ transform:rotate(180deg); }
 
@@ -761,6 +776,14 @@ function toggleDetail(i){
   arrow.classList.toggle("open", !isOpen);
 }
 
+function toggleCancelInfo(i){
+  const info = document.getElementById(`cancelInfo-${i}`);
+  const arrow = document.getElementById(`cancelArrow-${i}`);
+  const isOpen = info.classList.contains("open");
+  info.classList.toggle("open", !isOpen);
+  arrow.classList.toggle("open", !isOpen);
+}
+
 // 参加ボタン／登録済み表示を、そのイベントの状態に応じて描画
 function renderJoinRow(ev, i){
   const row = document.getElementById(`join-${i}`);
@@ -776,7 +799,17 @@ function renderJoinRow(ev, i){
   if(joined){
     row.innerHTML = `
       <span class="join-status">✓ 申込み表明済み</span>
-      <button class="btn btn-cancel" onclick="handleCancel(${i})">キャンセル申請したらタップ</button>
+      <button class="btn btn-toggle" onclick="toggleCancelInfo(${i})">
+        キャンセルする場合はこちら <span class="arrow" id="cancelArrow-${i}">▼</span>
+      </button>
+      <div class="cancel-info" id="cancelInfo-${i}">
+        <div class="cancel-info-text">
+          ・サポートLINEで報告<br>
+          「${escapeHtml(ev.title)}キャンセルします、手続き教えてください」<br><br>
+          ・キャンセル方法を確認し、キャンセル手続きをする
+        </div>
+        <button class="btn btn-cancel" onclick="handleCancel(${i})">キャンセル手続きをしたらタップ</button>
+      </div>
     `;
     return;
   }
