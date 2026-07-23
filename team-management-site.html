@@ -442,7 +442,7 @@ const CONFIG = {
   },
 
   // GAS(参加登録用)のウェブアプリURL。register/update/join/cancelの全アクションで共通。
-  GAS_URL: 'https://script.google.com/macros/s/AKfycbzNbmDMa33k0_mr8irMjn89rV2ah5QIbVlH1zOLDQER1VqVzyNhxYIJ_lvxTrHpZrT9/exec',
+  GAS_URL: 'https://script.google.com/macros/s/AKfycbwQMGzUUu5Ocsm1XgaHS9MRsuAfMZ-ifXmNpcJZMAgPf1Psx7v453fGIjh0UhOG8A/exec',
 
   // 表示する月(日程文字列 "7/3(月)..." の先頭月数字で絞り込む)
   MONTHS: [
@@ -1352,10 +1352,6 @@ function renderTraining() {
   list.innerHTML = filtered.map(({ ev, i }) => `
     <div class="event-card ${isPastEvent(ev) ? 'past' : ''} ${!isPastEvent(ev) && isEventToday(ev) ? 'today' : ''}">
       <div class="event-main">
-        ${ev.image
-          ? `<img class="event-thumb" src="${ev.image}" alt="">`
-          : `<div class="event-thumb"></div>`
-        }
         <div class="event-info">
           <div class="event-date">${formatDateRange(ev.start, ev.end)}${isPastEvent(ev) ? '<span class="past-badge">終了しました</span>' : ''}${!isPastEvent(ev) && isEventToday(ev) ? '<span class="today-badge">本日</span>' : ''}</div>
           ${getDeviceTimeZone() !== 'Asia/Tokyo' ? `<div class="field">（${formatDateRangeInDeviceZone(ev.start, ev.end)}）</div>` : ''}
