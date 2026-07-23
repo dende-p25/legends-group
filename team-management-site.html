@@ -436,13 +436,11 @@ const CONFIG = {
   PARTICIPANTS_SOURCE: {
     SPREADSHEET_ID: '1rmy1VNkjKLO9SiwgxJOSXjGp06Vag-R1G8l-SRIvSSs',
     SCHEDULE_TAB: 'グルコン/ユーサポ', // 列: 大区分,担当者・講師,日程,参加者,グルコンリーダー,紹介者,入力チェック,備考,元シート行番号（書き込み用）
-    SCHEDULE_TAB_GID: '1011201121',
-    FIRST_FOLLOW_TAB: '初回フォロー', // 列: 日程,担当者,参加者,zoom,入力チェック
-    FIRST_FOLLOW_TAB_GID: '1676811778'
+    SCHEDULE_TAB_GID: '1011201121'
   },
 
   // GAS(参加登録用)のウェブアプリURL。register/update/join/cancelの全アクションで共通。
-  GAS_URL: 'https://script.google.com/macros/s/AKfycbwQMGzUUu5Ocsm1XgaHS9MRsuAfMZ-ifXmNpcJZMAgPf1Psx7v453fGIjh0UhOG8A/exec',
+  GAS_URL: 'https://script.google.com/macros/s/AKfycbwvPrR8RWp5Rt9clrnUgwZCdge8yzivytaC3eOXYb6Z2jiHsSMC3gsYQLIe0hdGcmQ/exec',
 
   // 表示する月(日程文字列 "7/3(月)..." の先頭月数字で絞り込む)
   MONTHS: [
@@ -702,14 +700,12 @@ function loadData() {
 
   const scheduleUrl = csvUrl(CONFIG.SCHEDULE_SOURCE.SPREADSHEET_ID, CONFIG.SCHEDULE_SOURCE.SHEET_NAME);
   const gcUsUrl = csvUrl(CONFIG.PARTICIPANTS_SOURCE.SPREADSHEET_ID, CONFIG.PARTICIPANTS_SOURCE.SCHEDULE_TAB);
-  const ffUrl = csvUrl(CONFIG.PARTICIPANTS_SOURCE.SPREADSHEET_ID, CONFIG.PARTICIPANTS_SOURCE.FIRST_FOLLOW_TAB);
 
   Promise.all([
     parseCsv(scheduleUrl, true),
-    parseCsv(gcUsUrl, false),
-    parseCsv(ffUrl, false)
+    parseCsv(gcUsUrl, false)
   ])
-    .then(([scheduleData, gcUsData, ffData]) => {
+    .then(([scheduleData, gcUsData]) => {
       const participantMap = {};
       gcUsData.forEach((r, i) => {
         if (i === 0) return;
@@ -719,18 +715,6 @@ function loadData() {
         participantMap[`${section}|${datetime}`] = {
           participants: (r[3] || '').trim(),
           referrer: (r[5] || '').trim(),
-          row: i + 1
-        };
-      });
-
-      // 初回フォローの参加者データ(1rmy1VNkj側の「初回フォロー」タブ)を日程だけでルックアップできるようにする
-      const ffParticipantMap = {};
-      ffData.forEach((r, i) => {
-        if (i === 0) return;
-        const datetime = (r[0] || '').trim();
-        if (!datetime) return;
-        ffParticipantMap[datetime] = {
-          participants: (r[2] || '').trim(),
           row: i + 1
         };
       });
@@ -768,26 +752,28 @@ function loadData() {
         .filter(r => !(r.category === 'グループコンサル' && !r.leader))
         .filter(r => !isScheduleRowPast(r.datetime, month.year));
 
-      // 初回フォローも同じ①のシートから、大区分="初回フォロー"の行として読み込む
+      // 初回フォローも同じ①のシート・同じ参加者データ(グルコン/ユーサポタブ)から、
+      // 大区分="初回フォロー"の行として読み込む(担当者・講師をsectionとして参加者データと紐付け)
       const firstFollowRows = scheduleData
         .filter(r => (r['大区分'] || '').trim() === '初回フォロー')
         .filter(r => (r['日程'] || '').trim() !== '' && monthFromJpDatetime(r['日程']) === month.month)
         .filter(r => !isScheduleRowPast(r['日程'], month.year))
         .map(r => {
+          const section = (r['担当者・講師'] || '').trim();
           const datetime = (r['日程'] || '').trim();
-          const leader = (r['担当者・講師'] || '').trim();
           const zoomUrl = (r['zoomURL'] || '').trim();
           const applyUrl = (r['申込シート'] || '').trim() || null;
-          const matched = ffParticipantMap[datetime];
+          const matched = participantMap[`${section}|${datetime}`];
           return {
             category: '初回フォロー',
+            section,
             datetime,
-            leader,
+            leader: section,
             zoomUrl,
             applyUrl,
             participants: matched ? matched.participants : '',
             rawRow: matched ? matched.row : '',
-            tabGid: CONFIG.PARTICIPANTS_SOURCE.FIRST_FOLLOW_TAB_GID
+            tabGid: CONFIG.PARTICIPANTS_SOURCE.SCHEDULE_TAB_GID
           };
         });
 
