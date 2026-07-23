@@ -723,6 +723,18 @@ function loadData() {
         };
       });
 
+      // 初回フォローの参加者データ(1rmy1VNkj側の「初回フォロー」タブ)を日程だけでルックアップできるようにする
+      const ffParticipantMap = {};
+      ffData.forEach((r, i) => {
+        if (i === 0) return;
+        const datetime = (r[0] || '').trim();
+        if (!datetime) return;
+        ffParticipantMap[datetime] = {
+          participants: (r[2] || '').trim(),
+          row: i + 1
+        };
+      });
+
       // ユーザーサポート会の講師名。シート側の「大区分」列の入力もれ・ゆれに関わらず、
       // この名前が担当者・講師に入っていれば強制的にユーザーサポート会として扱う
       const USER_SUPPORT_SECTIONS = ['のがみんさん', 'みきさん'];
@@ -756,25 +768,28 @@ function loadData() {
         .filter(r => !(r.category === 'グループコンサル' && !r.leader))
         .filter(r => !isScheduleRowPast(r.datetime, month.year));
 
-      const firstFollowRows = ffData
-        .map((r, i) => ({
-          idx: i,
-          datetime: (r[0] || '').trim(),
-          leader: (r[1] || '').trim(),
-          participants: (r[2] || '').trim(),
-          zoomUrl: (r[3] || '').trim()
-        }))
-        .filter(r => r.idx !== 0 && r.datetime !== '' && monthFromJpDatetime(r.datetime) === month.month)
-        .filter(r => !isScheduleRowPast(r.datetime, month.year))
-        .map(r => ({
-          category: '初回フォロー',
-          datetime: r.datetime,
-          leader: r.leader,
-          participants: r.participants,
-          zoomUrl: r.zoomUrl,
-          rawRow: r.idx + 1,
-          tabGid: CONFIG.PARTICIPANTS_SOURCE.FIRST_FOLLOW_TAB_GID
-        }));
+      // 初回フォローも同じ①のシートから、大区分="初回フォロー"の行として読み込む
+      const firstFollowRows = scheduleData
+        .filter(r => (r['大区分'] || '').trim() === '初回フォロー')
+        .filter(r => (r['日程'] || '').trim() !== '' && monthFromJpDatetime(r['日程']) === month.month)
+        .filter(r => !isScheduleRowPast(r['日程'], month.year))
+        .map(r => {
+          const datetime = (r['日程'] || '').trim();
+          const leader = (r['担当者・講師'] || '').trim();
+          const zoomUrl = (r['zoomURL'] || '').trim();
+          const applyUrl = (r['申込シート'] || '').trim() || null;
+          const matched = ffParticipantMap[datetime];
+          return {
+            category: '初回フォロー',
+            datetime,
+            leader,
+            zoomUrl,
+            applyUrl,
+            participants: matched ? matched.participants : '',
+            rawRow: matched ? matched.row : '',
+            tabGid: CONFIG.PARTICIPANTS_SOURCE.FIRST_FOLLOW_TAB_GID
+          };
+        });
 
       cachedFirstFollowRows = firstFollowRows;
       cachedScheduleRows = scheduleRows;
